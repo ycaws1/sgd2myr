@@ -156,6 +156,20 @@ db_conn: Optional[duckdb.DuckDBPyConnection] = None
 scheduler = AsyncIOScheduler()
 
 
+def to_gmt8(dt: datetime) -> datetime:
+    """Convert a naive datetime (assumed to be in GMT+8) to timezone-aware GMT+8.
+    
+    DuckDB stores timestamps as naive. Since we store in GMT+8, we need to 
+    attach the timezone info when returning to ensure the ISO string includes +08:00.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Naive datetime - assume it's already in GMT+8, just attach tzinfo
+        return dt.replace(tzinfo=GMT_PLUS_8)
+    return dt
+
+
 # Pydantic Models
 class RateResponse(BaseModel):
     source_name: str
@@ -680,7 +694,7 @@ async def get_latest_rates():
         """).fetchall()
 
         return [
-            RateResponse(source_name=row[0], rate=row[1], timestamp=row[2])
+            RateResponse(source_name=row[0], rate=row[1], timestamp=to_gmt8(row[2]))
             for row in result
         ]
     except Exception as e:
@@ -715,7 +729,7 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
             if source_name not in trends:
                 trends[source_name] = []
             trends[source_name].append({
-                "timestamp": timestamp.isoformat(),
+                "timestamp": to_gmt8(timestamp).isoformat(),
                 "rate": rate
             })
 
@@ -814,7 +828,7 @@ async def get_best_rate():
         """).fetchone()
 
         if result:
-            return RateResponse(source_name=result[0], rate=result[1], timestamp=result[2])
+            return RateResponse(source_name=result[0], rate=result[1], timestamp=to_gmt8(result[2]))
         else:
             raise HTTPException(status_code=404, detail="No rates available")
     except HTTPException:
@@ -841,7 +855,7 @@ async def convert_currency(request: ConversionRequest):
             if not result:
                 raise HTTPException(status_code=404, detail=f"No rate found for source: {request.source}")
             
-            best = RateResponse(source_name=result[0], rate=result[1], timestamp=result[2])
+            best = RateResponse(source_name=result[0], rate=result[1], timestamp=to_gmt8(result[2]))
         else:
             best = await get_best_rate()
 
@@ -884,7 +898,7 @@ async def get_rates_history():
         for source, rate, timestamp in result:
             if source not in history_map:
                 history_map[source] = []
-            history_map[source].append(RateHistoryItem(rate=rate, timestamp=timestamp))
+            history_map[source].append(RateHistoryItem(rate=rate, timestamp=to_gmt8(timestamp)))
 
         return [
             SourceHistory(source_name=source, recent_rates=rates)
