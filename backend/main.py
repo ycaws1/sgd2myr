@@ -7,6 +7,21 @@ from datetime import datetime, timedelta, timezone
 
 # Define Timezones
 UTC = timezone.utc
+GMT_PLUS_8 = timezone(timedelta(hours=8))
+
+
+def to_utc(dt: datetime) -> datetime:
+    """Convert a datetime to timezone-aware UTC.
+    
+    If naive, we assume it's in GMT+8 (for backward compatibility with old local data)
+    before converting to UTC.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Backward compatibility: old data was stored as naive local (GMT+8)
+        return dt.replace(tzinfo=GMT_PLUS_8).astimezone(UTC)
+    return dt.astimezone(UTC)
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -155,20 +170,6 @@ os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
 db_conn: Optional[duckdb.DuckDBPyConnection] = None
 scheduler = AsyncIOScheduler()
 
-def to_utc(dt: datetime) -> datetime:
-    """Convert a naive datetime (assumed to be UTC) to timezone-aware UTC.
-    
-    DuckDB stores timestamps as naive. We store in UTC, so we need to 
-    attach the UTC timezone info when returning to ensure the ISO string includes 'Z' or +00:00.
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        # Naive datetime from DB - it's UTC, so attach UTC tzinfo
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
-
-
 # Pydantic Models
 class RateResponse(BaseModel):
     source_name: str
@@ -213,11 +214,11 @@ def init_database():
     global db_conn
     db_conn = duckdb.connect(DATABASE_PATH)
 
-    # Create rates table
+    # Create rates table with timezone support
     db_conn.execute("""
         CREATE TABLE IF NOT EXISTS rates (
             id INTEGER PRIMARY KEY,
-            timestamp TIMESTAMP NOT NULL,
+            timestamp TIMESTAMPTZ NOT NULL,
             source_name VARCHAR NOT NULL,
             rate DOUBLE NOT NULL
         )
@@ -229,7 +230,7 @@ def init_database():
     except Exception:
         pass
 
-    # Create subscriptions table
+    # Create subscriptions table with timezone support
     db_conn.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
             id INTEGER PRIMARY KEY,
@@ -238,7 +239,7 @@ def init_database():
             threshold DOUBLE,
             threshold_type VARCHAR DEFAULT 'above',
             volatility_alert BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

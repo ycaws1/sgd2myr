@@ -101,8 +101,8 @@ export function TrendChart() {
             key={source}
             onClick={() => toggleSource(source)}
             className={`px-3 py-1 text-xs rounded-full transition-colors ${selectedSources.has(source)
-                ? "text-white"
-                : "bg-dark-card text-gray-500"
+              ? "text-white"
+              : "bg-dark-card text-gray-500"
               }`}
             style={{
               backgroundColor: selectedSources.has(source)
@@ -119,8 +119,8 @@ export function TrendChart() {
       </div>
 
       {/* Chart */}
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-48 w-full min-w-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <LineChart data={chartData}>
             <XAxis
               dataKey="timestamp"
