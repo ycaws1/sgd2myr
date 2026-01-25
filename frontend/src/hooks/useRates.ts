@@ -16,8 +16,8 @@ export function useRates(pollInterval = 60000) {
   const fetchRates = useCallback(async () => {
     try {
       const [latestRes, historyRes] = await Promise.all([
-        fetch(`${API_BASE}/rates/latest`),
-        fetch(`${API_BASE}/rates/history`)
+        fetch(`${API_BASE}/rates/latest?_t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/rates/history?_t=${Date.now()}`, { cache: "no-store" })
       ]);
 
       if (!latestRes.ok || !historyRes.ok) throw new Error("Failed to fetch rates");

@@ -139,7 +139,19 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
           <LineChart data={chartData}>
             <XAxis
               dataKey="timestamp"
-              tickFormatter={(t) => new Date(t).toLocaleDateString("en-SG", { month: "short", day: "numeric", timeZone: "Asia/Singapore" })}
+              tickFormatter={(t) => {
+                const date = new Date(t);
+                const isToday = new Date().toDateString() === date.toDateString();
+                if (isToday) {
+                  return date.toLocaleTimeString("en-SG", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                    timeZone: "Asia/Singapore"
+                  });
+                }
+                return date.toLocaleDateString("en-SG", { month: "short", day: "numeric", timeZone: "Asia/Singapore" });
+              }}
               stroke="#525252"
               tick={{ fontSize: 10 }}
             />

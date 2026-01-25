@@ -12,7 +12,9 @@ export function useTrends(days = 30, pollInterval = 60000) {
 
   const fetchTrends = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/rates/trends?days=${days}`);
+      const response = await fetch(`${API_BASE}/rates/trends?days=${days}&_t=${Date.now()}`, {
+        cache: "no-store"
+      });
       if (!response.ok) throw new Error("Failed to fetch trends");
 
       const data: TrendData = await response.json();
