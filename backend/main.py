@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from playwright.async_api import async_playwright
+# from playwright.async_api import async_playwright
 
 load_dotenv()
 
@@ -147,57 +147,55 @@ def cleanup_old_data():
         logger.error(f"Failed to cleanup old data: {e}")
 
 
-# Scraper Functions
-async def scrape_google_rate() -> Optional[float]:
-    """Scrape SGD to MYR rate from Google Finance using Playwright.
+# # Scraper Functions
+# async def scrape_google_rate() -> Optional[float]:
+#     """Scrape SGD to MYR rate from Google Finance using Playwright.
 
-    Uses browser automation to click 5D tab and get the most current rate,
-    as the default data-last-price attribute can have lag.
-    """
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+#     Uses browser automation to click 5D tab and get the most current rate,
+#     as the default data-last-price attribute can have lag.
+#     """
+#     try:
+#         async with async_playwright() as p:
+#             browser = await p.chromium.launch(headless=True)
+#             page = await browser.new_page()
 
-            # Navigate to Google Finance
-            await page.goto(
-                "https://www.google.com/finance/quote/SGD-MYR",
-                wait_until="domcontentloaded"
-            )
+#             # Navigate to Google Finance
+#             await page.goto(
+#                 "https://www.google.com/finance/quote/SGD-MYR",
+#                 wait_until="domcontentloaded"
+#             )
 
-            # Click the 5D tab to get the most current rate
-            try:
-                await page.click('div[role="tab"]:has-text("5D")', timeout=5000)
-                # Wait for the rate to update
-                await page.wait_for_timeout(1000)
-            except Exception as e:
-                logger.warning(f"Could not click 5D tab: {e}")
+#             # Click the 5D tab to get the most current rate
+#             try:
+#                 await page.click('div[role="tab"]:has-text("5D")', timeout=5000)
+#                 # Wait for the rate to update
+#                 await page.wait_for_timeout(1000)
+#             except Exception as e:
+#                 logger.warning(f"Could not click 5D tab: {e}")
 
-            # Extract rate from page title (updates after 5D click)
-            # Format: "SGD/MYR 3.1325 (▼0.70%) | Google Finance"
-            title = await page.title()
-            match = re.search(r'SGD/MYR\s+(\d+\.\d+)', title)
-            if match:
-                rate = float(match.group(1))
-                await browser.close()
-                if 3.0 < rate < 4.0:
-                    return rate
+#             # Extract rate from page title (updates after 5D click)
+#             # Format: "SGD/MYR 3.1325 (▼0.70%) | Google Finance"
+#             title = await page.title()
+#             match = re.search(r'SGD/MYR\s+(\d+\.\d+)', title)
+#             if match:
+#                 rate = float(match.group(1))
+#                 await browser.close()
+#                 return rate
 
-            # Fallback: try data-last-price attribute
-            rate_element = await page.query_selector('[data-last-price]')
-            if rate_element:
-                rate_str = await rate_element.get_attribute('data-last-price')
-                if rate_str:
-                    rate = float(rate_str)
-                    await browser.close()
-                    if 3.0 < rate < 4.0:
-                        return rate
+#             # Fallback: try data-last-price attribute
+#             rate_element = await page.query_selector('[data-last-price]')
+#             if rate_element:
+#                 rate_str = await rate_element.get_attribute('data-last-price')
+#                 if rate_str:
+#                     rate = float(rate_str)
+#                     await browser.close()
+#                     return rate
 
-            await browser.close()
+#             await browser.close()
 
-    except Exception as e:
-        logger.error(f"Failed to scrape Google rate: {e}")
-    return None
+#     except Exception as e:
+#         logger.error(f"Failed to scrape Google rate: {e}")
+#     return None
 
 
 async def scrape_xe_rate() -> Optional[float]:
@@ -398,7 +396,7 @@ async def scrape_all_rates():
         ("Wise", scrape_wise_rate),           # Works well with regex
         ("CIMB", scrape_cimb_rate),           # Rate in hidden input
         ("XE", scrape_xe_rate),               # Reliable alternative
-        ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
+        # ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
         # ("Revolut", scrape_revolut_rate),     # Often returns 403
     ]
 
