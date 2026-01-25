@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
   // Allow empty turbopack config to silence the warning
   // next-pwa uses webpack, so we need to build with --webpack flag
   turbopack: {},
+  allowedDevOrigins: [
+    "192.168.0.122:3000",
+    "http://192.168.0.122:3000",
+  ],
 };
 
 export default withPWA(nextConfig);

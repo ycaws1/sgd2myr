@@ -7,11 +7,29 @@ interface AlertControlsProps {
   currentRate: number | null;
 }
 
+// Helper to convert VAPID key
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export function AlertControls({ currentRate }: AlertControlsProps) {
   const [threshold, setThreshold] = useState<string>("");
   const [thresholdType, setThresholdType] = useState<"above" | "below">("above");
   const [thresholdEnabled, setThresholdEnabled] = useState(false);
   const [volatilityEnabled, setVolatilityEnabled] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -25,7 +43,77 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     }
   }, []);
 
-  // Save to localStorage on change
+  // Check subscription status
+  useEffect(() => {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          registration.pushManager.getSubscription().then(sub => {
+            if (sub) setIsSubscribed(true);
+          });
+        });
+    }
+  }, []);
+
+  const subscribeToPush = async () => {
+    setLoading(true);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const response = await fetch('/api/vapid-key'); // Or load from env
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+      if (!vapidPublicKey) {
+        console.error("No VAPID public key found");
+        alert("Push notifications not configured (Missing VAPID Key)");
+        return;
+      }
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      });
+
+      setIsSubscribed(true);
+      return subscription;
+    } catch (error) {
+      console.error("Failed to subscribe", error);
+      alert("Failed to enable push notifications");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const savePreferences = async () => {
+    let subscription = null;
+    if (!isSubscribed && (thresholdEnabled || volatilityEnabled)) {
+      subscription = await subscribeToPush();
+      if (!subscription) return; // specific error handling handled in subscribeToPush
+    } else if (isSubscribed) {
+      const registration = await navigator.serviceWorker.ready;
+      subscription = await registration.pushManager.getSubscription();
+    }
+
+    if (!subscription) return;
+
+    // Send to backend
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          keys: subscription.toJSON().keys,
+          threshold: thresholdEnabled ? parseFloat(threshold) : null,
+          threshold_type: thresholdType,
+          volatility_alert: volatilityEnabled
+        })
+      });
+    } catch (e) {
+      console.error("Failed to save preferences to backend", e);
+    }
+  };
+
+  // Save to localStorage AND Backend on change
   useEffect(() => {
     localStorage.setItem("alertSettings", JSON.stringify({
       threshold,
@@ -33,7 +121,15 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       thresholdEnabled,
       volatilityEnabled,
     }));
-  }, [threshold, thresholdType, thresholdEnabled, volatilityEnabled]);
+
+    // Debounce backend save
+    const timeout = setTimeout(() => {
+      if (thresholdEnabled || volatilityEnabled) {
+        savePreferences();
+      }
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [threshold, thresholdType, thresholdEnabled, volatilityEnabled, isSubscribed]);
 
   return (
     <section className="px-4 py-4 border-t border-dark-border">
@@ -43,9 +139,8 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       <div className="flex items-center gap-3 mb-4">
         <button
           onClick={() => setThresholdEnabled(!thresholdEnabled)}
-          className={`p-2 rounded-lg transition-colors ${
-            thresholdEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
-          }`}
+          className={`p-2 rounded-lg transition-colors ${thresholdEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
+            }`}
         >
           {thresholdEnabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
         </button>
@@ -75,9 +170,8 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setVolatilityEnabled(!volatilityEnabled)}
-          className={`p-2 rounded-lg transition-colors ${
-            volatilityEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
-          }`}
+          className={`p-2 rounded-lg transition-colors ${volatilityEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
+            }`}
         >
           <Activity className="w-5 h-5" />
         </button>

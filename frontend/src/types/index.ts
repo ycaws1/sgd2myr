@@ -4,6 +4,16 @@ export interface Rate {
   timestamp: string;
 }
 
+export interface RateHistoryItem {
+  rate: number;
+  timestamp: string;
+}
+
+export interface SourceHistory {
+  source_name: string;
+  recent_rates: RateHistoryItem[];
+}
+
 export interface TrendData {
   period_days: number;
   data: {

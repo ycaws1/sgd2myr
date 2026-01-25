@@ -15,6 +15,8 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from pywebpush import webpush, WebPushException
+
 # from playwright.async_api import async_playwright
 
 load_dotenv()
@@ -32,6 +34,109 @@ DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", 30))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rates.duckdb")
 VOLATILITY_THRESHOLD = float(os.getenv("VOLATILITY_THRESHOLD", 2.0))
 VOLATILITY_PERIOD_MINUTES = int(os.getenv("VOLATILITY_PERIOD_MINUTES", 60))
+
+# VAPID Keys
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+VAPID_MAILTO = os.getenv("VAPID_MAILTO")
+
+if not VAPID_PRIVATE_KEY:
+    logger.warning("VAPID_PRIVATE_KEY not set. Push notifications will not work.")
+
+# ... (existing code) ...
+
+async def send_push_notification(subscription_info: dict, message: str):
+    """Send a push notification to a specific subscription."""
+    if not VAPID_PRIVATE_KEY:
+        logger.error("Cannot send push: VAPID_PRIVATE_KEY not configured")
+        return
+
+    try:
+        webpush(
+            subscription_info,
+            data=message,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_MAILTO or "mailto:admin@example.com"}
+        )
+        logger.info(f"Push notification sent successfully")
+    except WebPushException as ex:
+        logger.error(f"WebPush error: {ex}")
+        # If 410 Gone, we should probably remove the subscription
+        if ex.response and ex.response.status_code == 410:
+             logger.info("Subscription expired/gone. TODO: Remove from DB")
+    except Exception as ex:
+        logger.error(f"Failed to send push notification: {ex}")
+
+
+async def check_threshold_alerts(rates: list):
+    """Check if any rates hit user thresholds."""
+    if not rates:
+        return
+
+    try:
+        subscriptions = db_conn.execute("""
+            SELECT endpoint, keys_json, threshold, threshold_type
+            FROM subscriptions
+            WHERE threshold IS NOT NULL
+        """).fetchall()
+
+        best_rate = max(rate for _, rate in rates)
+
+        for endpoint, keys_json, threshold, threshold_type in subscriptions:
+            should_notify = False
+            if threshold_type == "above" and best_rate >= threshold:
+                should_notify = True
+            elif threshold_type == "below" and best_rate <= threshold:
+                should_notify = True
+
+            if should_notify:
+                logger.info(f"Threshold alert triggered for {endpoint}: rate {best_rate} {threshold_type} {threshold}")
+                
+                try:
+                    keys = json.loads(keys_json)
+                    subscription_info = {
+                        "endpoint": endpoint,
+                        "keys": keys
+                    }
+                    message = json.dumps({
+                        "title": "Rate Alert!",
+                        "body": f"Exchange rate is now {best_rate:.4f} (Threshold: {threshold:.4f})",
+                        "icon": "/icons/icon-192x192.png"
+                    })
+                    await send_push_notification(subscription_info, message)
+                except Exception as e:
+                    logger.error(f"Error processing subscription for {endpoint}: {e}")
+
+    except Exception as e:
+        logger.error(f"Failed to check threshold alerts: {e}")
+
+
+async def send_volatility_notifications(source: str, volatility: float, min_rate: float, max_rate: float):
+    """Send volatility alert notifications."""
+    try:
+        subscriptions = db_conn.execute("""
+            SELECT endpoint, keys_json
+            FROM subscriptions
+            WHERE volatility_alert = TRUE
+        """).fetchall()
+
+        for endpoint, keys_json in subscriptions:
+            logger.info(f"Sending volatility notification to {endpoint}")
+            try:
+                keys = json.loads(keys_json)
+                subscription_info = {
+                    "endpoint": endpoint,
+                    "keys": keys
+                }
+                message = json.dumps({
+                    "title": "High Volatility Alert",
+                    "body": f"{source} rate changed by {volatility:.2f}% ({min_rate:.4f} - {max_rate:.4f})",
+                     "icon": "/icons/icon-192x192.png"
+                })
+                await send_push_notification(subscription_info, message)
+            except Exception as e:
+                 logger.error(f"Error processing volatility sub for {endpoint}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to send volatility notifications: {e}")
 
 # Ensure data directory exists
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
@@ -64,9 +169,22 @@ class AlertSubscription(BaseModel):
 
 class ConversionRequest(BaseModel):
     amount: float
+    source: Optional[str] = None
 
 
-# Database Functions
+class RateHistoryItem(BaseModel):
+    rate: float
+    timestamp: datetime
+
+
+class SourceHistory(BaseModel):
+    source_name: str
+    recent_rates: list[RateHistoryItem]
+
+
+# ... (existing code) ...
+
+
 def init_database():
     """Initialize DuckDB tables."""
     global db_conn
@@ -132,6 +250,30 @@ def save_rate(source_name: str, rate: float):
         logger.info(f"Saved rate for {source_name}: {rate}")
     except Exception as e:
         logger.error(f"Failed to save rate for {source_name}: {e}")
+
+
+async def check_volatility_alerts():
+    """Check if rate volatility exceeds threshold."""
+    try:
+        cutoff = datetime.now() - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
+        result = db_conn.execute("""
+            SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
+            FROM rates
+            WHERE timestamp > ?
+            GROUP BY source_name
+        """, [cutoff]).fetchall()
+
+        for source_name, min_rate, max_rate in result:
+            if min_rate > 0:
+                volatility = ((max_rate - min_rate) / min_rate) * 100
+                if volatility >= VOLATILITY_THRESHOLD:
+                    logger.warning(
+                        f"Volatility alert for {source_name}: {volatility:.2f}% "
+                        f"(min: {min_rate}, max: {max_rate})"
+                    )
+                    await send_volatility_notifications(source_name, volatility, min_rate, max_rate)
+    except Exception as e:
+        logger.error(f"Failed to check volatility: {e}")
 
 
 def cleanup_old_data():
@@ -433,72 +575,7 @@ async def scrape_all_rates():
     logger.info(f"Scraping complete. Collected {len(rates_collected)} rates.")
 
 
-async def check_volatility_alerts():
-    """Check if rate volatility exceeds threshold."""
-    try:
-        cutoff = datetime.now() - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
-        result = db_conn.execute("""
-            SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
-            FROM rates
-            WHERE timestamp > ?
-            GROUP BY source_name
-        """, [cutoff]).fetchall()
 
-        for source_name, min_rate, max_rate in result:
-            if min_rate > 0:
-                volatility = ((max_rate - min_rate) / min_rate) * 100
-                if volatility >= VOLATILITY_THRESHOLD:
-                    logger.warning(
-                        f"Volatility alert for {source_name}: {volatility:.2f}% "
-                        f"(min: {min_rate}, max: {max_rate})"
-                    )
-                    await send_volatility_notifications(source_name, volatility, min_rate, max_rate)
-    except Exception as e:
-        logger.error(f"Failed to check volatility: {e}")
-
-
-async def check_threshold_alerts(rates: list):
-    """Check if any rates hit user thresholds."""
-    if not rates:
-        return
-
-    try:
-        subscriptions = db_conn.execute("""
-            SELECT endpoint, keys_json, threshold, threshold_type
-            FROM subscriptions
-            WHERE threshold IS NOT NULL
-        """).fetchall()
-
-        best_rate = max(rate for _, rate in rates)
-
-        for endpoint, keys_json, threshold, threshold_type in subscriptions:
-            should_notify = False
-            if threshold_type == "above" and best_rate >= threshold:
-                should_notify = True
-            elif threshold_type == "below" and best_rate <= threshold:
-                should_notify = True
-
-            if should_notify:
-                logger.info(f"Threshold alert triggered for {endpoint}: rate {best_rate} {threshold_type} {threshold}")
-                # Send push notification (implementation depends on VAPID setup)
-    except Exception as e:
-        logger.error(f"Failed to check threshold alerts: {e}")
-
-
-async def send_volatility_notifications(source: str, volatility: float, min_rate: float, max_rate: float):
-    """Send volatility alert notifications."""
-    try:
-        subscriptions = db_conn.execute("""
-            SELECT endpoint, keys_json
-            FROM subscriptions
-            WHERE volatility_alert = TRUE
-        """).fetchall()
-
-        for endpoint, keys_json in subscriptions:
-            logger.info(f"Would send volatility notification to {endpoint}")
-            # Implement actual push notification here
-    except Exception as e:
-        logger.error(f"Failed to send volatility notifications: {e}")
 
 
 # FastAPI App Setup
@@ -709,9 +786,25 @@ async def get_best_rate():
 
 @app.post("/convert")
 async def convert_currency(request: ConversionRequest):
-    """Convert SGD to MYR using the best current rate."""
+    """Convert SGD to MYR using the best current rate or a specific source."""
     try:
-        best = await get_best_rate()
+        if request.source:
+            # Get latest rate for specific source
+            result = db_conn.execute("""
+                SELECT source_name, rate, timestamp
+                FROM rates
+                WHERE source_name = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, [request.source]).fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail=f"No rate found for source: {request.source}")
+            
+            best = RateResponse(source_name=result[0], rate=result[1], timestamp=result[2])
+        else:
+            best = await get_best_rate()
+
         converted = request.amount * best.rate
         return {
             "sgd_amount": request.amount,
@@ -725,6 +818,41 @@ async def convert_currency(request: ConversionRequest):
     except Exception as e:
         logger.error(f"Failed to convert: {e}")
         raise HTTPException(status_code=500, detail="Failed to convert currency")
+
+
+@app.get("/rates/history", response_model=list[SourceHistory])
+async def get_rates_history():
+    """Get the last 5 records for each source."""
+    try:
+        # DuckDB supports window functions effectively
+        result = db_conn.execute("""
+            WITH RankedRates AS (
+                SELECT 
+                    source_name, 
+                    rate, 
+                    timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY timestamp DESC) as rn
+                FROM rates
+            )
+            SELECT source_name, rate, timestamp
+            FROM RankedRates
+            WHERE rn <= 5
+            ORDER BY source_name ASC, timestamp DESC
+        """).fetchall()
+
+        history_map = {}
+        for source, rate, timestamp in result:
+            if source not in history_map:
+                history_map[source] = []
+            history_map[source].append(RateHistoryItem(rate=rate, timestamp=timestamp))
+
+        return [
+            SourceHistory(source_name=source, recent_rates=rates)
+            for source, rates in history_map.items()
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve history")
 
 
 @app.post("/rates/scrape")
