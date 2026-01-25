@@ -43,13 +43,30 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     }
   }, []);
 
-  // Check subscription status
+  // Check subscription status and sync with backend
   useEffect(() => {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
-          registration.pushManager.getSubscription().then(sub => {
-            if (sub) setIsSubscribed(true);
+          registration.pushManager.getSubscription().then(async (sub) => {
+            if (sub) {
+              setIsSubscribed(true);
+              // Sync Status from Backend
+              try {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/status?endpoint=${encodeURIComponent(sub.endpoint)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  setThresholdEnabled(data.threshold_enabled);
+                  setVolatilityEnabled(data.volatility_alert);
+                  if (data.threshold) {
+                    setThreshold(data.threshold.toString());
+                    setThresholdType(data.threshold_type);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to sync alert status");
+              }
+            }
           });
         });
     }
@@ -59,7 +76,7 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     setLoading(true);
     try {
       const registration = await navigator.serviceWorker.ready;
-      const response = await fetch('/api/vapid-key'); // Or load from env
+      // const response = await fetch('/api/vapid-key'); // REMOVED: using env var directly
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
       if (!vapidPublicKey) {

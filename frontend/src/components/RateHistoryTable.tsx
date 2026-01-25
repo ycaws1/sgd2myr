@@ -39,9 +39,9 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
                 <table className="w-full text-sm text-left">
                     <thead className="text-xs text-gray-400 uppercase bg-dark-card border-b border-dark-border">
                         <tr>
-                            <th className="px-4 py-3">Time</th>
+                            <th className="px-2 py-2 md:px-4 md:py-3 sticky left-0 bg-dark-card z-10">Time</th>
                             {sourceNames.map(source => (
-                                <th key={source} className="px-4 py-3 text-right">{source}</th>
+                                <th key={source} className="px-2 py-2 md:px-4 md:py-3 text-right">{source}</th>
                             ))}
                         </tr>
                     </thead>
@@ -51,7 +51,7 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
                                 key={row.index}
                                 className="border-b border-dark-border last:border-0 hover:bg-dark-card/50 transition-colors"
                             >
-                                <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                                <td className="px-2 py-2 md:px-4 md:py-3 text-gray-500 whitespace-nowrap text-xs md:text-sm sticky left-0 bg-dark-bg/95 md:bg-transparent">
                                     {row.timestamp ? row.timestamp.toLocaleTimeString([], {
                                         hour: '2-digit',
                                         minute: '2-digit',
@@ -59,7 +59,7 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
                                     }) : "-"}
                                 </td>
                                 {row.rates.map((rate, i) => (
-                                    <td key={i} className="px-4 py-3 text-right font-mono text-white">
+                                    <td key={i} className="px-2 py-2 md:px-4 md:py-3 text-right font-mono text-white text-xs md:text-sm">
                                         {rate ? rate.toFixed(4) : "-"}
                                     </td>
                                 ))}

@@ -103,6 +103,13 @@ async def check_threshold_alerts(rates: list):
                         "icon": "/icons/icon-192x192.png"
                     })
                     await send_push_notification(subscription_info, message)
+                    
+                    # One-time alert: Disable threshold after sending
+                    db_conn.execute(
+                        "UPDATE subscriptions SET threshold = NULL WHERE endpoint = ?", 
+                        [endpoint]
+                    )
+                    logger.info(f"Disabled threshold for {endpoint} after alert.")
                 except Exception as e:
                     logger.error(f"Error processing subscription for {endpoint}: {e}")
 
@@ -714,6 +721,34 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
     except Exception as e:
         logger.error(f"Failed to get trends: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+
+@app.get("/alerts/status")
+async def get_alert_status(endpoint: str):
+    """Get current subscription status."""
+    try:
+        result = db_conn.execute("""
+            SELECT threshold, threshold_type, volatility_alert
+            FROM subscriptions
+            WHERE endpoint = ?
+        """, [endpoint]).fetchone()
+
+        if result:
+            return {
+                "threshold": result[0],
+                "threshold_type": result[1],
+                "volatility_alert": bool(result[2]),
+                "threshold_enabled": result[0] is not None
+            }
+        return {
+            "threshold": None,
+            "threshold_type": "above",
+            "volatility_alert": False,
+            "threshold_enabled": False
+        }
+    except Exception as e:
+        logger.error(f"Failed to get subscription status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve status")
 
 
 @app.post("/alerts/subscribe")

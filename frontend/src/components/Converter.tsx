@@ -53,7 +53,7 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
         </select>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
         {/* SGD Input */}
         <div className="flex-1">
           <div className="flex items-center bg-dark-card rounded-lg border border-dark-border focus-within:border-accent-green">
@@ -62,14 +62,16 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
               type="number"
               value={sgdAmount}
               onChange={(e) => setSgdAmount(e.target.value)}
-              className="flex-1 bg-transparent py-3 pr-3 text-white text-right font-mono focus:outline-none"
+              className="flex-1 bg-transparent py-3 pr-3 text-white text-right font-mono focus:outline-none w-full"
               placeholder="0"
             />
           </div>
         </div>
 
         {/* Arrow */}
-        <ArrowRightLeft className="w-5 h-5 text-gray-500 flex-shrink-0" />
+        <div className="flex justify-center md:block">
+          <ArrowRightLeft className="w-5 h-5 text-gray-500 flex-shrink-0 rotate-90 md:rotate-0" />
+        </div>
 
         {/* MYR Output */}
         <div className="flex-1">
