@@ -1,0 +1,756 @@
+import os
+import re
+import json
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+from typing import Optional
+
+import duckdb
+import httpx
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from playwright.async_api import async_playwright
+
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Configuration
+SCRAPE_INTERVAL = int(os.getenv("SCRAPE_INTERVAL", 5))
+DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", 30))
+DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rates.duckdb")
+VOLATILITY_THRESHOLD = float(os.getenv("VOLATILITY_THRESHOLD", 2.0))
+VOLATILITY_PERIOD_MINUTES = int(os.getenv("VOLATILITY_PERIOD_MINUTES", 60))
+
+# Ensure data directory exists
+os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+
+# Global database connection
+db_conn: Optional[duckdb.DuckDBPyConnection] = None
+scheduler = AsyncIOScheduler()
+
+
+# Pydantic Models
+class RateResponse(BaseModel):
+    source_name: str
+    rate: float
+    timestamp: datetime
+
+
+class TrendDataPoint(BaseModel):
+    timestamp: datetime
+    source_name: str
+    rate: float
+
+
+class AlertSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+    threshold: Optional[float] = None
+    threshold_type: Optional[str] = "above"  # "above" or "below"
+    volatility_alert: bool = False
+
+
+class ConversionRequest(BaseModel):
+    amount: float
+
+
+# Database Functions
+def init_database():
+    """Initialize DuckDB tables."""
+    global db_conn
+    db_conn = duckdb.connect(DATABASE_PATH)
+
+    # Create rates table
+    db_conn.execute("""
+        CREATE TABLE IF NOT EXISTS rates (
+            id INTEGER PRIMARY KEY,
+            timestamp TIMESTAMP NOT NULL,
+            source_name VARCHAR NOT NULL,
+            rate DOUBLE NOT NULL
+        )
+    """)
+
+    # Create sequence for auto-increment if not exists
+    try:
+        db_conn.execute("CREATE SEQUENCE IF NOT EXISTS rates_id_seq START 1")
+    except Exception:
+        pass
+
+    # Create subscriptions table
+    db_conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY,
+            endpoint VARCHAR UNIQUE NOT NULL,
+            keys_json VARCHAR NOT NULL,
+            threshold DOUBLE,
+            threshold_type VARCHAR DEFAULT 'above',
+            volatility_alert BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    try:
+        db_conn.execute("CREATE SEQUENCE IF NOT EXISTS subscriptions_id_seq START 1")
+    except Exception:
+        pass
+
+    # Create index for faster queries
+    db_conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_rates_timestamp
+        ON rates(timestamp)
+    """)
+    db_conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_rates_source
+        ON rates(source_name)
+    """)
+
+    logger.info("Database initialized successfully")
+
+
+def save_rate(source_name: str, rate: float):
+    """Save a rate to the database."""
+    try:
+        db_conn.execute(
+            """
+            INSERT INTO rates (id, timestamp, source_name, rate)
+            VALUES (nextval('rates_id_seq'), CURRENT_TIMESTAMP, ?, ?)
+            """,
+            [source_name, rate]
+        )
+        logger.info(f"Saved rate for {source_name}: {rate}")
+    except Exception as e:
+        logger.error(f"Failed to save rate for {source_name}: {e}")
+
+
+def cleanup_old_data():
+    """Delete records older than retention period."""
+    try:
+        cutoff = datetime.now() - timedelta(days=DATA_RETENTION_DAYS)
+        result = db_conn.execute(
+            "DELETE FROM rates WHERE timestamp < ?",
+            [cutoff]
+        )
+        logger.info(f"Cleaned up old rate records (older than {DATA_RETENTION_DAYS} days)")
+    except Exception as e:
+        logger.error(f"Failed to cleanup old data: {e}")
+
+
+# Scraper Functions
+async def scrape_google_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from Google Finance using Playwright.
+
+    Uses browser automation to click 5D tab and get the most current rate,
+    as the default data-last-price attribute can have lag.
+    """
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            # Navigate to Google Finance
+            await page.goto(
+                "https://www.google.com/finance/quote/SGD-MYR",
+                wait_until="domcontentloaded"
+            )
+
+            # Click the 5D tab to get the most current rate
+            try:
+                await page.click('div[role="tab"]:has-text("5D")', timeout=5000)
+                # Wait for the rate to update
+                await page.wait_for_timeout(1000)
+            except Exception as e:
+                logger.warning(f"Could not click 5D tab: {e}")
+
+            # Extract rate from page title (updates after 5D click)
+            # Format: "SGD/MYR 3.1325 (▼0.70%) | Google Finance"
+            title = await page.title()
+            match = re.search(r'SGD/MYR\s+(\d+\.\d+)', title)
+            if match:
+                rate = float(match.group(1))
+                await browser.close()
+                if 3.0 < rate < 4.0:
+                    return rate
+
+            # Fallback: try data-last-price attribute
+            rate_element = await page.query_selector('[data-last-price]')
+            if rate_element:
+                rate_str = await rate_element.get_attribute('data-last-price')
+                if rate_str:
+                    rate = float(rate_str)
+                    await browser.close()
+                    if 3.0 < rate < 4.0:
+                        return rate
+
+            await browser.close()
+
+    except Exception as e:
+        logger.error(f"Failed to scrape Google rate: {e}")
+    return None
+
+
+async def scrape_xe_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from XE.com."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.xe.com/currencyconverter/convert/?Amount=1&From=SGD&To=MYR",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout=10.0
+            )
+            text = response.text
+
+            # Pattern 1: "X.XXXX Malaysian Ringgits"
+            match = re.search(r'(\d+\.\d{2,})\s*Malaysian\s*Ringgit', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                if 3.0 < rate < 4.0:
+                    return rate
+
+            # Pattern 2: Look for rate in fxrate class or data attributes
+            match = re.search(r'class="[^"]*fxrate[^"]*"[^>]*>(\d+\.\d+)', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                if 3.0 < rate < 4.0:
+                    return rate
+
+            # Pattern 3: "1 SGD = X.XX MYR"
+            match = re.search(r'1\s*SGD\s*=\s*(\d+\.?\d*)\s*MYR', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                if 3.0 < rate < 4.0:
+                    return rate
+
+    except Exception as e:
+        logger.error(f"Failed to scrape XE rate: {e}")
+    return None
+
+
+async def scrape_wise_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from Wise."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://wise.com/gb/currency-converter/sgd-to-myr-rate?amount=1",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout=10.0
+            )
+            text = response.text
+
+            # Pattern 1: "S$1 SGD = X.XXX MYR" or "1 SGD = X.XXXX MYR"
+            match = re.search(r'1\s*SGD\s*=\s*(\d+\.?\d*)\s*MYR', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 2: Look for rate in table cells "X.XX MYR" after "1 SGD"
+            match = re.search(r'>\s*1\s*SGD\s*<.*?>\s*(\d+\.?\d*)\s*MYR\s*<', text, re.IGNORECASE | re.DOTALL)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 3: Look for mid-market rate text
+            match = re.search(r'mid-market.*?(\d+\.\d{3,})', text, re.IGNORECASE | re.DOTALL)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+    except Exception as e:
+        logger.error(f"Failed to scrape Wise rate: {e}")
+    return None
+
+
+async def scrape_cimb_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from CIMB."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.cimbclicks.com.sg/sgd-to-myr",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout=10.0,
+                follow_redirects=True
+            )
+            text = response.text
+
+            # Pattern 1: Rate stored in hidden input as JSON array like value="[3.1107]"
+            match = re.search(r'rateList"\s*value="\[(\d+\.?\d*)\]"', text)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 2: "SGD 1.00 = MYR X.XXXX"
+            match = re.search(r'SGD\s*1\.00\s*=\s*MYR\s*(\d+\.?\d*)', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 3: Any rate value between 3.0 and 4.0 (SGD/MYR typical range)
+            matches = re.findall(r'(\d+\.\d{4})', text)
+            for match_str in matches:
+                rate = float(match_str)
+                return rate
+
+    except Exception as e:
+        logger.error(f"Failed to scrape CIMB rate: {e}")
+    return None
+
+
+async def scrape_instarem_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from Instarem using their JSON API."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.instarem.com/wp-json/instarem/v2/convert-rate/sgd/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") and "data" in data:
+                    rate = data["data"].get("MYR")
+                    return float(rate)
+    except Exception as e:
+        logger.error(f"Failed to scrape Instarem rate: {e}")
+    return None
+
+
+async def scrape_revolut_rate() -> Optional[float]:
+    """Scrape SGD to MYR rate from Revolut."""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Updated URL format for Revolut
+            response = await client.get(
+                "https://www.revolut.com/en-AU/currency-converter/convert-sgd-to-myr-exchange-rate/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout=10.0,
+                follow_redirects=True
+            )
+            text = response.text
+
+            # Pattern 1: "1 SGD = X.XXXXX MYR" in heading
+            match = re.search(r'1\s*SGD\s*=\s*(\d+\.?\d*)\s*MYR', text, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 2: Look for rate in table cells
+            match = re.search(r'>\s*1\s*SGD\s*<.*?>\s*(\d+\.?\d*)\s*MYR\s*<', text, re.IGNORECASE | re.DOTALL)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+            # Pattern 3: RM X.XXXXX pattern (Malaysian Ringgit symbol)
+            match = re.search(r'RM\s*(\d+\.\d{3,})', text)
+            if match:
+                rate = float(match.group(1))
+                return rate
+
+    except Exception as e:
+        logger.error(f"Failed to scrape Revolut rate: {e}")
+    return None
+
+
+async def scrape_exchangerate_api() -> Optional[float]:
+    """Fallback: Use free exchange rate API."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.exchangerate-api.com/v4/latest/SGD",
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("rates", {}).get("MYR")
+    except Exception as e:
+        logger.error(f"Failed to get ExchangeRate API rate: {e}")
+    return None
+
+
+async def scrape_all_rates():
+    """Scrape rates from all sources and save to database."""
+    logger.info("Starting rate scraping...")
+
+    # Define scrapers with their source names
+    # Scrapers ordered by reliability (most reliable first)
+    scrapers = [
+        ("Instarem", scrape_instarem_rate),   # JSON API - most reliable
+        ("Wise", scrape_wise_rate),           # Works well with regex
+        ("CIMB", scrape_cimb_rate),           # Rate in hidden input
+        ("XE", scrape_xe_rate),               # Reliable alternative
+        ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
+        # ("Revolut", scrape_revolut_rate),     # Often returns 403
+    ]
+
+    # Run all scrapers concurrently
+    tasks = [scraper() for _, scraper in scrapers]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    rates_collected = []
+
+    for (source_name, _), result in zip(scrapers, results):
+        if isinstance(result, Exception):
+            logger.error(f"Scraper {source_name} raised exception: {result}")
+            continue
+        if result is not None:
+            save_rate(source_name, result)
+            rates_collected.append((source_name, result))
+        else:
+            logger.warning(f"No rate obtained from {source_name}")
+
+    # If no rates collected, use fallback
+    if not rates_collected:
+        logger.warning("No rates collected from primary sources, using fallback API")
+        fallback_rate = await scrape_exchangerate_api()
+        if fallback_rate:
+            save_rate("ExchangeRate-API", fallback_rate)
+            rates_collected.append(("ExchangeRate-API", fallback_rate))
+
+    # Check for volatility alerts
+    await check_volatility_alerts()
+
+    # Check threshold alerts
+    await check_threshold_alerts(rates_collected)
+
+    logger.info(f"Scraping complete. Collected {len(rates_collected)} rates.")
+
+
+async def check_volatility_alerts():
+    """Check if rate volatility exceeds threshold."""
+    try:
+        cutoff = datetime.now() - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
+        result = db_conn.execute("""
+            SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
+            FROM rates
+            WHERE timestamp > ?
+            GROUP BY source_name
+        """, [cutoff]).fetchall()
+
+        for source_name, min_rate, max_rate in result:
+            if min_rate > 0:
+                volatility = ((max_rate - min_rate) / min_rate) * 100
+                if volatility >= VOLATILITY_THRESHOLD:
+                    logger.warning(
+                        f"Volatility alert for {source_name}: {volatility:.2f}% "
+                        f"(min: {min_rate}, max: {max_rate})"
+                    )
+                    await send_volatility_notifications(source_name, volatility, min_rate, max_rate)
+    except Exception as e:
+        logger.error(f"Failed to check volatility: {e}")
+
+
+async def check_threshold_alerts(rates: list):
+    """Check if any rates hit user thresholds."""
+    if not rates:
+        return
+
+    try:
+        subscriptions = db_conn.execute("""
+            SELECT endpoint, keys_json, threshold, threshold_type
+            FROM subscriptions
+            WHERE threshold IS NOT NULL
+        """).fetchall()
+
+        best_rate = max(rate for _, rate in rates)
+
+        for endpoint, keys_json, threshold, threshold_type in subscriptions:
+            should_notify = False
+            if threshold_type == "above" and best_rate >= threshold:
+                should_notify = True
+            elif threshold_type == "below" and best_rate <= threshold:
+                should_notify = True
+
+            if should_notify:
+                logger.info(f"Threshold alert triggered for {endpoint}: rate {best_rate} {threshold_type} {threshold}")
+                # Send push notification (implementation depends on VAPID setup)
+    except Exception as e:
+        logger.error(f"Failed to check threshold alerts: {e}")
+
+
+async def send_volatility_notifications(source: str, volatility: float, min_rate: float, max_rate: float):
+    """Send volatility alert notifications."""
+    try:
+        subscriptions = db_conn.execute("""
+            SELECT endpoint, keys_json
+            FROM subscriptions
+            WHERE volatility_alert = TRUE
+        """).fetchall()
+
+        for endpoint, keys_json in subscriptions:
+            logger.info(f"Would send volatility notification to {endpoint}")
+            # Implement actual push notification here
+    except Exception as e:
+        logger.error(f"Failed to send volatility notifications: {e}")
+
+
+# FastAPI App Setup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    # Startup
+    init_database()
+
+    # Schedule scraping job
+    scheduler.add_job(
+        scrape_all_rates,
+        "interval",
+        minutes=SCRAPE_INTERVAL,
+        id="scrape_rates",
+        replace_existing=True
+    )
+
+    # Schedule cleanup job (daily at midnight)
+    scheduler.add_job(
+        cleanup_old_data,
+        "cron",
+        hour=0,
+        minute=0,
+        id="cleanup_old_data",
+        replace_existing=True
+    )
+
+    scheduler.start()
+    logger.info(f"Scheduler started. Scraping every {SCRAPE_INTERVAL} minutes.")
+
+    # Run initial scrape
+    asyncio.create_task(scrape_all_rates())
+
+    yield
+
+    # Shutdown
+    scheduler.shutdown()
+    if db_conn:
+        db_conn.close()
+    logger.info("Application shutdown complete.")
+
+
+app = FastAPI(
+    title="SGD to MYR Rate Tracker",
+    description="API for tracking SGD to MYR exchange rates from multiple sources",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# API Endpoints
+@app.get("/")
+async def root():
+    """Root endpoint with API info."""
+    return {
+        "name": "SGD to MYR Rate Tracker API",
+        "version": "1.0.0",
+        "endpoints": {
+            "latest_rates": "/rates/latest",
+            "trends": "/rates/trends",
+            "subscribe": "/alerts/subscribe"
+        }
+    }
+
+
+@app.get("/rates/latest", response_model=list[RateResponse])
+async def get_latest_rates():
+    """Get the most recent rate for all sources."""
+    try:
+        result = db_conn.execute("""
+            WITH latest AS (
+                SELECT source_name, MAX(timestamp) as max_ts
+                FROM rates
+                GROUP BY source_name
+            )
+            SELECT r.source_name, r.rate, r.timestamp
+            FROM rates r
+            INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
+            ORDER BY r.rate DESC
+        """).fetchall()
+
+        return [
+            RateResponse(source_name=row[0], rate=row[1], timestamp=row[2])
+            for row in result
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get latest rates: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve rates")
+
+
+@app.get("/rates/trends")
+async def get_rate_trends(source: Optional[str] = None, days: int = 30):
+    """Get historical rate data for charting."""
+    try:
+        cutoff = datetime.now() - timedelta(days=days)
+
+        if source:
+            result = db_conn.execute("""
+                SELECT timestamp, source_name, rate
+                FROM rates
+                WHERE timestamp > ? AND source_name = ?
+                ORDER BY timestamp ASC
+            """, [cutoff, source]).fetchall()
+        else:
+            result = db_conn.execute("""
+                SELECT timestamp, source_name, rate
+                FROM rates
+                WHERE timestamp > ?
+                ORDER BY timestamp ASC
+            """, [cutoff]).fetchall()
+
+        # Group by source for easier charting
+        trends = {}
+        for timestamp, source_name, rate in result:
+            if source_name not in trends:
+                trends[source_name] = []
+            trends[source_name].append({
+                "timestamp": timestamp.isoformat(),
+                "rate": rate
+            })
+
+        return {
+            "period_days": days,
+            "data": trends
+        }
+    except Exception as e:
+        logger.error(f"Failed to get trends: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+
+@app.post("/alerts/subscribe")
+async def subscribe_alerts(subscription: AlertSubscription):
+    """Subscribe to push notifications."""
+    try:
+        keys_json = json.dumps(subscription.keys)
+
+        # Upsert subscription
+        db_conn.execute("""
+            INSERT INTO subscriptions (id, endpoint, keys_json, threshold, threshold_type, volatility_alert)
+            VALUES (nextval('subscriptions_id_seq'), ?, ?, ?, ?, ?)
+            ON CONFLICT (endpoint) DO UPDATE SET
+                keys_json = EXCLUDED.keys_json,
+                threshold = EXCLUDED.threshold,
+                threshold_type = EXCLUDED.threshold_type,
+                volatility_alert = EXCLUDED.volatility_alert
+        """, [
+            subscription.endpoint,
+            keys_json,
+            subscription.threshold,
+            subscription.threshold_type,
+            subscription.volatility_alert
+        ])
+
+        return {"status": "subscribed", "endpoint": subscription.endpoint}
+    except Exception as e:
+        logger.error(f"Failed to subscribe: {e}")
+        raise HTTPException(status_code=500, detail="Failed to subscribe")
+
+
+@app.delete("/alerts/unsubscribe")
+async def unsubscribe_alerts(endpoint: str):
+    """Unsubscribe from push notifications."""
+    try:
+        db_conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", [endpoint])
+        return {"status": "unsubscribed", "endpoint": endpoint}
+    except Exception as e:
+        logger.error(f"Failed to unsubscribe: {e}")
+        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
+
+
+@app.get("/rates/best")
+async def get_best_rate():
+    """Get the current best rate among all sources."""
+    try:
+        result = db_conn.execute("""
+            WITH latest AS (
+                SELECT source_name, MAX(timestamp) as max_ts
+                FROM rates
+                GROUP BY source_name
+            )
+            SELECT r.source_name, r.rate, r.timestamp
+            FROM rates r
+            INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
+            ORDER BY r.rate DESC
+            LIMIT 1
+        """).fetchone()
+
+        if result:
+            return RateResponse(source_name=result[0], rate=result[1], timestamp=result[2])
+        else:
+            raise HTTPException(status_code=404, detail="No rates available")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get best rate: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve best rate")
+
+
+@app.post("/convert")
+async def convert_currency(request: ConversionRequest):
+    """Convert SGD to MYR using the best current rate."""
+    try:
+        best = await get_best_rate()
+        converted = request.amount * best.rate
+        return {
+            "sgd_amount": request.amount,
+            "myr_amount": round(converted, 2),
+            "rate": best.rate,
+            "source": best.source_name,
+            "timestamp": best.timestamp
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Failed to convert: {e}")
+        raise HTTPException(status_code=500, detail="Failed to convert currency")
+
+
+@app.post("/rates/scrape")
+async def trigger_scrape(background_tasks: BackgroundTasks):
+    """Manually trigger a rate scrape."""
+    background_tasks.add_task(scrape_all_rates)
+    return {"status": "scraping", "message": "Rate scraping started in background"}
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    try:
+        # Check database connection
+        db_conn.execute("SELECT 1").fetchone()
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "scheduler": "running" if scheduler.running else "stopped"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Unhealthy: {e}")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
