@@ -156,7 +156,10 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
                 borderRadius: 8,
               }}
               labelFormatter={(t) => new Date(t).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
-              formatter={(value) => [typeof value === 'number' ? value.toFixed(4) : value, "Rate"]}
+              formatter={(value, name) => [
+                typeof value === 'number' ? value.toFixed(4) : value,
+                name
+              ]}
             />
             {sources
               .filter((s) => selectedSources.has(s))

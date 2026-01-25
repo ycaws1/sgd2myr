@@ -12,20 +12,26 @@ interface HeroRateProps {
 }
 
 function formatTimeAgo(date: Date, now: number): string {
-  const seconds = Math.floor((now - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
+  const diffInSeconds = Math.floor((now - date.getTime()) / 1000);
+
+  if (diffInSeconds < 5) return "just now";
+  if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+
+  const minutes = Math.floor(diffInSeconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
+
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
+  if (hours < 24) return `${hours}h ago`;
+
+  return date.toLocaleDateString();
 }
 
 export function HeroRate({ bestRate, lastUpdated, loading, onRefresh }: HeroRateProps) {
   const [now, setNow] = useState(Date.now());
 
-  // Update the relative time every minute
+  // Update the relative time every second for the "count up" feel
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 10000); // Check every 10s for better responsiveness
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
