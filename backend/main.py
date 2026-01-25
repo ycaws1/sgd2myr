@@ -3,7 +3,10 @@ import re
 import json
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Define GMT+8 timezone
+GMT_PLUS_8 = timezone(timedelta(hours=8))
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -247,12 +250,14 @@ def init_database():
 def save_rate(source_name: str, rate: float):
     """Save a rate to the database."""
     try:
+        # Use GMT+8 timezone for consistent timestamps
+        now_gmt8 = datetime.now(GMT_PLUS_8)
         db_conn.execute(
             """
             INSERT INTO rates (id, timestamp, source_name, rate)
-            VALUES (nextval('rates_id_seq'), CURRENT_TIMESTAMP, ?, ?)
+            VALUES (nextval('rates_id_seq'), ?, ?, ?)
             """,
-            [source_name, rate]
+            [now_gmt8, source_name, rate]
         )
         logger.info(f"Saved rate for {source_name}: {rate}")
     except Exception as e:
@@ -262,7 +267,7 @@ def save_rate(source_name: str, rate: float):
 async def check_volatility_alerts():
     """Check if rate volatility exceeds threshold."""
     try:
-        cutoff = datetime.now() - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
+        cutoff = datetime.now(GMT_PLUS_8) - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
         result = db_conn.execute("""
             SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
             FROM rates
@@ -286,7 +291,7 @@ async def check_volatility_alerts():
 def cleanup_old_data():
     """Delete records older than retention period."""
     try:
-        cutoff = datetime.now() - timedelta(days=DATA_RETENTION_DAYS)
+        cutoff = datetime.now(GMT_PLUS_8) - timedelta(days=DATA_RETENTION_DAYS)
         result = db_conn.execute(
             "DELETE FROM rates WHERE timestamp < ?",
             [cutoff]
@@ -687,7 +692,7 @@ async def get_latest_rates():
 async def get_rate_trends(source: Optional[str] = None, days: int = 30):
     """Get historical rate data for charting."""
     try:
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(GMT_PLUS_8) - timedelta(days=days)
 
         if source:
             result = db_conn.execute("""

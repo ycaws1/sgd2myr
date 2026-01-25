@@ -52,10 +52,11 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
                                 className="border-b border-dark-border last:border-0 hover:bg-dark-card/50 transition-colors"
                             >
                                 <td className="px-2 py-2 md:px-4 md:py-3 text-gray-500 whitespace-nowrap text-xs md:text-sm sticky left-0 bg-dark-bg/95 md:bg-transparent">
-                                    {row.timestamp ? row.timestamp.toLocaleTimeString([], {
+                                    {row.timestamp ? row.timestamp.toLocaleTimeString('en-SG', {
                                         hour: '2-digit',
                                         minute: '2-digit',
-                                        second: '2-digit'
+                                        second: '2-digit',
+                                        timeZone: 'Asia/Singapore'
                                     }) : "-"}
                                 </td>
                                 {row.rates.map((rate, i) => (

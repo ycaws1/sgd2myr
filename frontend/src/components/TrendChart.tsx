@@ -100,11 +100,10 @@ export function TrendChart() {
           <button
             key={source}
             onClick={() => toggleSource(source)}
-            className={`px-3 py-1 text-xs rounded-full transition-colors ${
-              selectedSources.has(source)
+            className={`px-3 py-1 text-xs rounded-full transition-colors ${selectedSources.has(source)
                 ? "text-white"
                 : "bg-dark-card text-gray-500"
-            }`}
+              }`}
             style={{
               backgroundColor: selectedSources.has(source)
                 ? COLORS[idx % COLORS.length] + "33"
@@ -125,7 +124,7 @@ export function TrendChart() {
           <LineChart data={chartData}>
             <XAxis
               dataKey="timestamp"
-              tickFormatter={(t) => new Date(t).toLocaleDateString("en", { month: "short", day: "numeric" })}
+              tickFormatter={(t) => new Date(t).toLocaleDateString("en-SG", { month: "short", day: "numeric", timeZone: "Asia/Singapore" })}
               stroke="#525252"
               tick={{ fontSize: 10 }}
             />
@@ -141,7 +140,7 @@ export function TrendChart() {
                 border: "1px solid #262626",
                 borderRadius: 8,
               }}
-              labelFormatter={(t) => new Date(t).toLocaleString()}
+              labelFormatter={(t) => new Date(t).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
               formatter={(value) => [typeof value === 'number' ? value.toFixed(4) : value, "Rate"]}
             />
             {sources
