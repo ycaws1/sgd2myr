@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Rate } from "@/types";
 import { TrendingUp, RefreshCw } from "lucide-react";
 
@@ -10,8 +11,8 @@ interface HeroRateProps {
   onRefresh: () => void;
 }
 
-function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+function formatTimeAgo(date: Date, now: number): string {
+  const seconds = Math.floor((now - date.getTime()) / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -20,6 +21,14 @@ function formatTimeAgo(date: Date): string {
 }
 
 export function HeroRate({ bestRate, lastUpdated, loading, onRefresh }: HeroRateProps) {
+  const [now, setNow] = useState(Date.now());
+
+  // Update the relative time every minute
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10000); // Check every 10s for better responsiveness
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <section className="px-4 pt-8 pb-6">
       <div className="flex items-center justify-between mb-2">
@@ -50,7 +59,7 @@ export function HeroRate({ bestRate, lastUpdated, loading, onRefresh }: HeroRate
             {lastUpdated && (
               <>
                 <span>•</span>
-                <span>{formatTimeAgo(lastUpdated)}</span>
+                <span>{formatTimeAgo(lastUpdated, now)}</span>
               </>
             )}
           </div>

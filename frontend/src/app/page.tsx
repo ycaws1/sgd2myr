@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRates } from "@/hooks/useRates";
 import { HeroRate } from "@/components/HeroRate";
 import { AlertControls } from "@/components/AlertControls";
@@ -9,7 +10,13 @@ import { Converter } from "@/components/Converter";
 import { RateHistoryTable } from "@/components/RateHistoryTable";
 
 export default function Home() {
-  const { rates, history, bestRate, loading, lastUpdated, refresh } = useRates();
+  const { rates, history, bestRate, loading, lastUpdated, refresh: refreshRates } = useRates();
+  const [refreshTrends, setRefreshTrends] = useState<(() => void) | null>(null);
+
+  const handleRefresh = () => {
+    refreshRates();
+    if (refreshTrends) refreshTrends();
+  };
 
   return (
     <main className="min-h-screen max-w-lg mx-auto">
@@ -17,12 +24,12 @@ export default function Home() {
         bestRate={bestRate}
         lastUpdated={lastUpdated}
         loading={loading}
-        onRefresh={refresh}
+        onRefresh={handleRefresh}
       />
 
       <AlertControls currentRate={bestRate?.rate || null} />
 
-      <TrendChart />
+      <TrendChart onRefresh={setRefreshTrends} />
 
       <RateHistoryTable history={history} />
 

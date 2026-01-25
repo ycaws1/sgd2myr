@@ -24,8 +24,19 @@ interface ChartDataPoint {
   [source: string]: string | number;
 }
 
-export function TrendChart() {
-  const { trends, loading, error } = useTrends(30);
+interface TrendChartProps {
+  onRefresh?: (refreshFn: () => void) => void;
+}
+
+export function TrendChart({ onRefresh }: TrendChartProps) {
+  const { trends, loading, error, refresh } = useTrends(30);
+
+  useEffect(() => {
+    if (onRefresh && refresh) {
+      onRefresh(() => refresh);
+    }
+  }, [onRefresh, refresh]);
+
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
   const sources = useMemo(() => {
@@ -47,7 +58,11 @@ export function TrendChart() {
 
     for (const [source, points] of Object.entries(trends.data)) {
       for (const point of points) {
-        const timeKey = new Date(point.timestamp).toISOString();
+        // Round to nearest minute to align data points from the same scraping run
+        const date = new Date(point.timestamp);
+        date.setSeconds(0, 0);
+        const timeKey = date.toISOString();
+
         if (!timeMap.has(timeKey)) {
           timeMap.set(timeKey, { timestamp: timeKey });
         }

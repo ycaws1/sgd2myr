@@ -261,17 +261,23 @@ def init_database():
     logger.info("Database initialized successfully")
 
 
-def save_rate(source_name: str, rate: float):
+def save_rate(source_name: str, rate: float, timestamp: Optional[datetime] = None):
     """Save a rate to the database."""
     try:
         # Use UTC timezone for storage
-        now_utc = datetime.now(UTC)
+        if timestamp is None:
+            timestamp = datetime.now(UTC)
+        elif timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        else:
+            timestamp = timestamp.astimezone(UTC)
+
         db_conn.execute(
             """
             INSERT INTO rates (id, timestamp, source_name, rate)
             VALUES (nextval('rates_id_seq'), ?, ?, ?)
             """,
-            [now_utc, source_name, rate]
+            [timestamp, source_name, rate]
         )
         logger.info(f"Saved rate for {source_name}: {rate}")
     except Exception as e:
@@ -573,13 +579,15 @@ async def scrape_all_rates():
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     rates_collected = []
+    # Use a single timestamp for all rates collected in this run
+    now_utc = datetime.now(UTC)
 
     for (source_name, _), result in zip(scrapers, results):
         if isinstance(result, Exception):
             logger.error(f"Scraper {source_name} raised exception: {result}")
             continue
         if result is not None:
-            save_rate(source_name, result)
+            save_rate(source_name, result, timestamp=now_utc)
             rates_collected.append((source_name, result))
         else:
             logger.warning(f"No rate obtained from {source_name}")
@@ -589,7 +597,7 @@ async def scrape_all_rates():
         logger.warning("No rates collected from primary sources, using fallback API")
         fallback_rate = await scrape_exchangerate_api()
         if fallback_rate:
-            save_rate("ExchangeRate-API", fallback_rate)
+            save_rate("ExchangeRate-API", fallback_rate, timestamp=now_utc)
             rates_collected.append(("ExchangeRate-API", fallback_rate))
 
     # Check for volatility alerts
