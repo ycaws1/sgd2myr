@@ -5,8 +5,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-# Define GMT+8 timezone
-GMT_PLUS_8 = timezone(timedelta(hours=8))
+# Define Timezones
+UTC = timezone.utc
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -155,19 +155,18 @@ os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
 db_conn: Optional[duckdb.DuckDBPyConnection] = None
 scheduler = AsyncIOScheduler()
 
-
-def to_gmt8(dt: datetime) -> datetime:
-    """Convert a naive datetime (assumed to be in GMT+8) to timezone-aware GMT+8.
+def to_utc(dt: datetime) -> datetime:
+    """Convert a naive datetime (assumed to be UTC) to timezone-aware UTC.
     
-    DuckDB stores timestamps as naive. Since we store in GMT+8, we need to 
-    attach the timezone info when returning to ensure the ISO string includes +08:00.
+    DuckDB stores timestamps as naive. We store in UTC, so we need to 
+    attach the UTC timezone info when returning to ensure the ISO string includes 'Z' or +00:00.
     """
     if dt is None:
         return None
     if dt.tzinfo is None:
-        # Naive datetime - assume it's already in GMT+8, just attach tzinfo
-        return dt.replace(tzinfo=GMT_PLUS_8)
-    return dt
+        # Naive datetime from DB - it's UTC, so attach UTC tzinfo
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 # Pydantic Models
@@ -264,14 +263,14 @@ def init_database():
 def save_rate(source_name: str, rate: float):
     """Save a rate to the database."""
     try:
-        # Use GMT+8 timezone for consistent timestamps
-        now_gmt8 = datetime.now(GMT_PLUS_8)
+        # Use UTC timezone for storage
+        now_utc = datetime.now(UTC)
         db_conn.execute(
             """
             INSERT INTO rates (id, timestamp, source_name, rate)
             VALUES (nextval('rates_id_seq'), ?, ?, ?)
             """,
-            [now_gmt8, source_name, rate]
+            [now_utc, source_name, rate]
         )
         logger.info(f"Saved rate for {source_name}: {rate}")
     except Exception as e:
@@ -281,7 +280,7 @@ def save_rate(source_name: str, rate: float):
 async def check_volatility_alerts():
     """Check if rate volatility exceeds threshold."""
     try:
-        cutoff = datetime.now(GMT_PLUS_8) - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
+        cutoff = datetime.now(UTC) - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
         result = db_conn.execute("""
             SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
             FROM rates
@@ -305,7 +304,7 @@ async def check_volatility_alerts():
 def cleanup_old_data():
     """Delete records older than retention period."""
     try:
-        cutoff = datetime.now(GMT_PLUS_8) - timedelta(days=DATA_RETENTION_DAYS)
+        cutoff = datetime.now(UTC) - timedelta(days=DATA_RETENTION_DAYS)
         result = db_conn.execute(
             "DELETE FROM rates WHERE timestamp < ?",
             [cutoff]
@@ -694,7 +693,7 @@ async def get_latest_rates():
         """).fetchall()
 
         return [
-            RateResponse(source_name=row[0], rate=row[1], timestamp=to_gmt8(row[2]))
+            RateResponse(source_name=row[0], rate=row[1], timestamp=to_utc(row[2]))
             for row in result
         ]
     except Exception as e:
@@ -706,7 +705,7 @@ async def get_latest_rates():
 async def get_rate_trends(source: Optional[str] = None, days: int = 30):
     """Get historical rate data for charting."""
     try:
-        cutoff = datetime.now(GMT_PLUS_8) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         if source:
             result = db_conn.execute("""
@@ -729,7 +728,7 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
             if source_name not in trends:
                 trends[source_name] = []
             trends[source_name].append({
-                "timestamp": to_gmt8(timestamp).isoformat(),
+                "timestamp": to_utc(timestamp).isoformat(),
                 "rate": rate
             })
 
@@ -828,7 +827,7 @@ async def get_best_rate():
         """).fetchone()
 
         if result:
-            return RateResponse(source_name=result[0], rate=result[1], timestamp=to_gmt8(result[2]))
+            return RateResponse(source_name=result[0], rate=result[1], timestamp=to_utc(result[2]))
         else:
             raise HTTPException(status_code=404, detail="No rates available")
     except HTTPException:
@@ -855,7 +854,7 @@ async def convert_currency(request: ConversionRequest):
             if not result:
                 raise HTTPException(status_code=404, detail=f"No rate found for source: {request.source}")
             
-            best = RateResponse(source_name=result[0], rate=result[1], timestamp=to_gmt8(result[2]))
+            best = RateResponse(source_name=result[0], rate=result[1], timestamp=to_utc(result[2]))
         else:
             best = await get_best_rate()
 
@@ -898,7 +897,7 @@ async def get_rates_history():
         for source, rate, timestamp in result:
             if source not in history_map:
                 history_map[source] = []
-            history_map[source].append(RateHistoryItem(rate=rate, timestamp=to_gmt8(timestamp)))
+            history_map[source].append(RateHistoryItem(rate=rate, timestamp=to_utc(timestamp)))
 
         return [
             SourceHistory(source_name=source, recent_rates=rates)
