@@ -569,7 +569,7 @@ async def scrape_all_rates():
         ("Instarem", scrape_instarem_rate),   # JSON API - most reliable
         ("Wise", scrape_wise_rate),           # Works well with regex
         ("CIMB", scrape_cimb_rate),           # Rate in hidden input
-        ("XE", scrape_xe_rate),               # Reliable alternative
+        # ("XE", scrape_xe_rate),               # Reliable alternative
         # ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
         # ("Revolut", scrape_revolut_rate),     # Often returns 403
     ]
@@ -922,6 +922,38 @@ async def trigger_scrape(background_tasks: BackgroundTasks):
     """Manually trigger a rate scrape."""
     background_tasks.add_task(scrape_all_rates)
     return {"status": "scraping", "message": "Rate scraping started in background"}
+
+
+class TestPushRequest(BaseModel):
+    endpoint: str
+    keys: dict
+
+
+@app.post("/alerts/test")
+async def test_push_notification(request: TestPushRequest):
+    """Send a test push notification to verify push notifications are working."""
+    try:
+        if not VAPID_PRIVATE_KEY:
+            raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY not configured on server")
+        
+        subscription_info = {
+            "endpoint": request.endpoint,
+            "keys": request.keys
+        }
+        
+        message = json.dumps({
+            "title": "🔔 Test Notification",
+            "body": f"Push notifications are working! Sent at {datetime.now(GMT_PLUS_8).strftime('%Y-%m-%d %H:%M:%S')} (GMT+8)",
+            "icon": "/icons/icon-192x192.png"
+        })
+        
+        await send_push_notification(subscription_info, message)
+        return {"status": "sent", "message": "Test notification sent successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to send test notification: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send test notification: {str(e)}")
 
 
 @app.get("/health")

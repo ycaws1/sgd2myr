@@ -30,6 +30,8 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
   const [volatilityEnabled, setVolatilityEnabled] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -130,6 +132,51 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     }
   };
 
+  const sendTestNotification = async () => {
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      // Ensure service worker is registered and we have a push subscription
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        // Subscribe first
+        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+          setTestResult({ ok: false, message: "VAPID public key not configured" });
+          return;
+        }
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+        setIsSubscribed(true);
+      }
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          keys: subscription.toJSON().keys,
+        }),
+      });
+
+      if (res.ok) {
+        setTestResult({ ok: true, message: "Test notification sent!" });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setTestResult({ ok: false, message: data.detail || "Failed to send" });
+      }
+    } catch (error) {
+      console.error("Test notification error:", error);
+      setTestResult({ ok: false, message: String(error) });
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
   // Save to localStorage AND Backend on change
   useEffect(() => {
     localStorage.setItem("alertSettings", JSON.stringify({
@@ -173,8 +220,9 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
             <option value="below">≤</option>
           </select>
           <input
-            type="number"
-            step="0.0001"
+            type="text"
+            inputMode="decimal"
+            pattern="[0-9]*\.?[0-9]*"
             placeholder={currentRate?.toFixed(4) || "3.4500"}
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
@@ -193,6 +241,22 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
           <Activity className="w-5 h-5" />
         </button>
         <span className="text-sm text-gray-400">Volatility alerts (sudden changes)</span>
+      </div>
+
+      {/* Test Notification */}
+      <div className="mt-4">
+        <button
+          onClick={sendTestNotification}
+          disabled={testLoading}
+          className="w-full text-sm py-2 px-4 rounded-lg border border-dark-border bg-dark-card text-gray-400 hover:text-white hover:border-accent-green transition-colors disabled:opacity-50"
+        >
+          {testLoading ? "Sending..." : "Send Test Notification"}
+        </button>
+        {testResult && (
+          <p className={`text-xs mt-1 text-center ${testResult.ok ? "text-accent-green" : "text-accent-red"}`}>
+            {testResult.message}
+          </p>
+        )}
       </div>
     </section>
   );

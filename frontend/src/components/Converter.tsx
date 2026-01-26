@@ -59,7 +59,9 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
           <div className="flex items-center bg-dark-card rounded-lg border border-dark-border focus-within:border-accent-green">
             <span className="px-3 text-gray-500">SGD</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*\.?[0-9]*"
               value={sgdAmount}
               onChange={(e) => setSgdAmount(e.target.value)}
               className="flex-1 bg-transparent py-3 pr-3 text-white text-right font-mono focus:outline-none w-full"

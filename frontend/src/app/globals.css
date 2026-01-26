@@ -35,3 +35,16 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Fix: iOS PWA standalone mode makes inputs unresponsive */
+@media all and (display-mode: standalone) {
+  input,
+  select,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+    touch-action: auto;
+    -webkit-touch-callout: default;
+    font-size: 16px !important;
+  }
+}
