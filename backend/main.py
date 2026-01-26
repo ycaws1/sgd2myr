@@ -368,6 +368,9 @@ async def scrape_google_n_revolut_rate():
                 page_2_rate = float(match.group(1))
         except Exception as e:
             await page_2.screenshot(path="revolut_error.png")
+            html_content = await page_2.content()
+            with open("revolut_error.html", "w", encoding="utf-8") as f:
+                f.write(html_content)
             logger.error(f"Failed to scrape Revolut rate: {e}")
             page_2_rate = None
         
@@ -999,15 +1002,26 @@ async def health_check():
         }
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Unhealthy: {e}")
-
-@app.get("/debug-screenshot")
-async def get_debug_screenshot():
-    """Endpoint to view the last error screenshot."""
-    file_path = "revolut_error.png"
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="image/png")
+    
+@app.get("/debug/{file_type}")
+async def get_debug_file(file_type: str):
+    """
+    Access debug files. 
+    Usage: /debug/image or /debug/html
+    """
+    if file_type == "image":
+        file_path = "revolut_error.png"
+        media = "image/png"
+    elif file_type == "html":
+        file_path = "revolut_error.html"
+        media = "text/html"
     else:
-        raise HTTPException(status_code=404, detail="Screenshot not found. No errors yet?")
+        raise HTTPException(status_code=400, detail="Invalid file type. Use 'image' or 'html'.")
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type=media)
+    else:
+        raise HTTPException(status_code=404, detail="File not found. No errors recorded yet.")
     
 if __name__ == "__main__":
     import uvicorn
