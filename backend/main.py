@@ -912,7 +912,7 @@ async def get_rates_history():
                 SELECT 
                     source_name, 
                     rate, 
-                    timestamp,
+                    date_trunc('minute', timestamp) as timestamp,
                     ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY timestamp DESC) as rn
                 FROM rates
             )
