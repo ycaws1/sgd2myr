@@ -327,6 +327,7 @@ def cleanup_old_data():
 async def scrape_google_n_revolut_rate():
     stealth = Stealth()
     async with async_playwright() as p:
+        print(f"headless: {bool(os.getenv('HEADLESS','1')}"")
         browser = await p.chromium.launch(headless=bool(os.getenv('HEADLESS','1')))
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
