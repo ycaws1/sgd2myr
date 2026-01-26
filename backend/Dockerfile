@@ -14,4 +14,6 @@ RUN playwright install chromium \
 
 COPY . .
 
-CMD ["xvfb-run", "--auto-servernum", "uvicorn", "main:app"]
+EXPOSE 8000
+
+CMD ["xvfb-run", "--auto-servernum", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
