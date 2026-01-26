@@ -339,7 +339,7 @@ async def scrape_google_n_revolut_rate():
         url = "https://www.google.com/finance/quote/SGD-MYR"
         print(f"Navigating to {url}...")
         try:
-            await page_1.goto(url, wait_until="networkidle")
+            await page_1.goto(url) #, wait_until="networkidle")
             await page_1.wait_for_selector('div[data-last-price]', timeout=10000)
             rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
             page_1_rate = float(rate)
@@ -350,7 +350,7 @@ async def scrape_google_n_revolut_rate():
         url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
         print(f"Navigating to {url}...")
         try:
-            await page_2.goto(url, wait_until="networkidle")
+            await page_2.goto(url) #, wait_until="networkidle")
             await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible", timeout=10000)
             text = await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
             match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
