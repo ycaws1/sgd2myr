@@ -493,7 +493,7 @@ async def scrape_revolut_rate() -> Optional[float]:
             await page.goto(url) #, wait_until="networkidle")
             rate_pattern = re.compile(r"1\s?SGD\s?=\s?\d+\.\d+\s?MYR")
             rate_locator = page.get_by_text(rate_pattern)
-            await rate_locator.wait_for(state="visible", timeout=1500)
+            # await rate_locator.wait_for(state="visible", timeout=1500)
             full_text = await rate_locator.inner_text()
             numeric_match = re.search(r"\d+\.\d+", full_text)
             rate = numeric_match.group(0) if numeric_match else None
