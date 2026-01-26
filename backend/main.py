@@ -738,14 +738,14 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
 
         if source:
             result = db_conn.execute("""
-                SELECT timestamp, source_name, rate
+                SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
                 FROM rates
                 WHERE timestamp > ? AND source_name = ?
                 ORDER BY timestamp ASC
             """, [cutoff, source]).fetchall()
         else:
             result = db_conn.execute("""
-                SELECT timestamp, source_name, rate
+                SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
                 FROM rates
                 WHERE timestamp > ?
                 ORDER BY timestamp ASC
