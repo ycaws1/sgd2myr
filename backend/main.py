@@ -458,13 +458,6 @@ async def scrape_wise_rate() -> Optional[float]:
             if match:
                 rate = float(match.group(1))
                 return rate
-
-            # Pattern 3: Look for mid-market rate text
-            match = re.search(r'mid-market.*?(\d+\.\d{3,})', text, re.IGNORECASE | re.DOTALL)
-            if match:
-                rate = float(match.group(1))
-                return rate
-
     except Exception as e:
         logger.error(f"Failed to scrape Wise rate: {e}")
     return None
