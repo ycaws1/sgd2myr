@@ -490,14 +490,13 @@ async def scrape_revolut_rate() -> Optional[float]:
         url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
         print(f"Navigating to {url}...")
         try:
-            await page.goto(url, wait_until="networkidle")
-            rate_pattern = re.compile(r"1\s?SGD\s?=\s?\d+\.\d+\s?MYR")
-            rate_locator = page.get_by_text(rate_pattern)
-            # await rate_locator.wait_for(state="visible", timeout=1500)
-            full_text = await rate_locator.inner_text()
-            numeric_match = re.search(r"\d+\.\d+", full_text)
-            rate = numeric_match.group(0) if numeric_match else None
-            return float(rate)
+            await page.goto(url) #, wait_until="networkidle")
+            await page.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for()
+            text = await page.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
+            match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
+            if match:
+                rate = match.group(1)
+                return float(rate)
         except Exception as e:
             logger.error(f"Failed to scrape Revolut rate: {e}")
             return None
