@@ -6,7 +6,9 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN playwright install chromium
+RUN apt-get install playwright \
+    playwright install chromium \
+    playwright install-deps
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
