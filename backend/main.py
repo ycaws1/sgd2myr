@@ -4,6 +4,7 @@ import json
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from fastapi.responses import FileResponse
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
@@ -339,7 +340,7 @@ async def scrape_google_n_revolut_rate():
         url = "https://www.google.com/finance/quote/SGD-MYR"
         print(f"Navigating to {url}...")
         try:
-            await page_1.goto(url) #, wait_until="networkidle")
+            await page_1.goto(url, wait_until="networkidle")
             await page_1.wait_for_selector('div[data-last-price]', timeout=10000)
             rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
             page_1_rate = float(rate)
@@ -366,6 +367,7 @@ async def scrape_google_n_revolut_rate():
             if match:
                 page_2_rate = float(match.group(1))
         except Exception as e:
+            await page_2.screenshot(path="revolut_error.png")
             logger.error(f"Failed to scrape Revolut rate: {e}")
             page_2_rate = None
         
@@ -998,7 +1000,15 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Unhealthy: {e}")
 
-
+@app.get("/debug-screenshot")
+async def get_debug_screenshot():
+    """Endpoint to view the last error screenshot."""
+    file_path = "revolut_error.png"
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/png")
+    else:
+        raise HTTPException(status_code=404, detail="Screenshot not found. No errors yet?")
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
