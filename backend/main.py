@@ -368,9 +368,9 @@ async def scrape_google_n_revolut_rate():
                 page_2_rate = float(match.group(1))
         except Exception as e:
             await page_2.screenshot(path="revolut_error.png")
-            html_content = await page_2.content()
+            inner_html = await page_2.evaluate("document.documentElement.innerHTML")
             with open("revolut_error.html", "w", encoding="utf-8") as f:
-                f.write(html_content)
+                f.write(inner_html)
             logger.error(f"Failed to scrape Revolut rate: {e}")
             page_2_rate = None
         
