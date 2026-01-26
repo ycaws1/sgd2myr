@@ -351,9 +351,15 @@ async def scrape_google_n_revolut_rate():
         print(f"Navigating to {url}...")
         try:
             await page_2.goto(url) #, wait_until="networkidle")
-            await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible", timeout=10000)
-            text = await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
-            match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
+            # await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible")
+            # text = await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
+            # match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
+            # if match:
+                # page_2_rate = float(match.group(1))
+            await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible")
+            text = await page_2.locator('foreignObject span', has_text="RM").text_content()
+            text = text.replace('\xa0', ' ')
+            match = re.search(r'RM\s*([\d.]+)', text)
             if match:
                 page_2_rate = float(match.group(1))
         except Exception as e:
