@@ -348,31 +348,32 @@ async def scrape_google_n_revolut_rate():
             logger.error(f"Failed to scrape Google rate: {e}")
             page_1_rate = None
         
-        url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
-        print(f"Navigating to {url}...")
-        try:
-            await page_2.goto(url) #, wait_until="networkidle")
-            # await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible")
-            # text = await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
-            # match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
-            # if match:
-                # page_2_rate = float(match.group(1))
-            if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
-                await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
-            await page_2.locator('button[role="tab"]', has_text="1d").click()
-            await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible", timeout=10000)
-            text = await page_2.locator('foreignObject span', has_text="RM").text_content()
-            text = text.replace('\xa0', ' ')
-            match = re.search(r'RM\s*([\d.]+)', text)
-            if match:
-                page_2_rate = float(match.group(1))
-        except Exception as e:
-            await page_2.screenshot(path="revolut_error.png")
-            inner_html = await page_2.evaluate("document.documentElement.innerHTML")
-            with open("revolut_error.html", "w", encoding="utf-8") as f:
-                f.write(inner_html)
-            logger.error(f"Failed to scrape Revolut rate: {e}")
-            page_2_rate = None
+        # url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
+        # print(f"Navigating to {url}...")
+        # try:
+        #     await page_2.goto(url) #, wait_until="networkidle")
+        #     # await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible")
+        #     # text = await page_2.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
+        #     # match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
+        #     # if match:
+        #         # page_2_rate = float(match.group(1))
+        #     if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
+        #         await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
+        #     await page_2.locator('button[role="tab"]', has_text="1d").click()
+        #     await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible", timeout=10000)
+        #     text = await page_2.locator('foreignObject span', has_text="RM").text_content()
+        #     text = text.replace('\xa0', ' ')
+        #     match = re.search(r'RM\s*([\d.]+)', text)
+        #     if match:
+        #         page_2_rate = float(match.group(1))
+        # except Exception as e:
+        #     await page_2.screenshot(path="revolut_error.png")
+        #     inner_html = await page_2.evaluate("document.documentElement.innerHTML")
+        #     with open("revolut_error.html", "w", encoding="utf-8") as f:
+        #         f.write(inner_html)
+        #     logger.error(f"Failed to scrape Revolut rate: {e}")
+        #     page_2_rate = None
+        page_2_rate = None
         
         await browser.close()
         return [page_1_rate, page_2_rate]
