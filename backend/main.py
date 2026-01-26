@@ -356,7 +356,10 @@ async def scrape_google_n_revolut_rate():
             # match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
             # if match:
                 # page_2_rate = float(match.group(1))
-            await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible")
+            if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
+                await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
+            await page_2.locator('button[role="tab"]', has_text="1d").click()
+            await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible", timeout=10000)
             text = await page_2.locator('foreignObject span', has_text="RM").text_content()
             text = text.replace('\xa0', ' ')
             match = re.search(r'RM\s*([\d.]+)', text)
