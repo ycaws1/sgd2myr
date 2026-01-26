@@ -16,4 +16,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD xvfb-run --auto-servernum uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD xvfb-run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

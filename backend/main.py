@@ -58,12 +58,11 @@ VOLATILITY_PERIOD_MINUTES = int(os.getenv("VOLATILITY_PERIOD_MINUTES", 60))
 
 # VAPID Keys
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
-VAPID_MAILTO = os.getenv("VAPID_MAILTO")
+VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL")
 
 if not VAPID_PRIVATE_KEY:
     logger.warning("VAPID_PRIVATE_KEY not set. Push notifications will not work.")
 
-# ... (existing code) ...
 
 async def send_push_notification(subscription_info: dict, message: str):
     """Send a push notification to a specific subscription."""
@@ -76,7 +75,7 @@ async def send_push_notification(subscription_info: dict, message: str):
             subscription_info,
             data=message,
             vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims={"sub": VAPID_MAILTO or "mailto:admin@example.com"}
+            vapid_claims={"sub": VAPID_CLAIMS_EMAIL or "mailto:admin@example.com"}
         )
         logger.info(f"Push notification sent successfully")
     except WebPushException as ex:
