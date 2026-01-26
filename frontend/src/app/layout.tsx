@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { StandaloneInputFix } from "@/components/StandaloneInputFix";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-dark-bg text-white min-h-screen">
+        <StandaloneInputFix />
         {children}
       </body>
     </html>

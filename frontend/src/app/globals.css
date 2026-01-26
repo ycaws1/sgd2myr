@@ -41,10 +41,27 @@ body {
   input,
   select,
   textarea {
-    -webkit-user-select: text;
-    user-select: text;
-    touch-action: auto;
-    -webkit-touch-callout: default;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    touch-action: auto !important;
+    -webkit-touch-callout: default !important;
     font-size: 16px !important;
+    cursor: text;
+    -webkit-appearance: none;
+    appearance: none;
   }
+
+  select {
+    cursor: pointer;
+    -webkit-appearance: menulist !important;
+    appearance: menulist !important;
+  }
+}
+
+/* Ensure inputs are always interactive regardless of display mode */
+input[type="text"],
+input[type="number"],
+input[inputmode="decimal"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
 }
