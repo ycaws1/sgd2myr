@@ -10,3 +10,4 @@ pywebpush==2.0.0
 pydantic==2.10.0
 httpx==0.28.0
 pywebpush
+playwright-stealth

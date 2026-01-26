@@ -4,6 +4,8 @@ import json
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 
 # Define Timezones
 UTC = timezone.utc
@@ -322,54 +324,26 @@ def cleanup_old_data():
 
 
 # # Scraper Functions
-# async def scrape_google_rate() -> Optional[float]:
-#     """Scrape SGD to MYR rate from Google Finance using Playwright.
-
-#     Uses browser automation to click 5D tab and get the most current rate,
-#     as the default data-last-price attribute can have lag.
-#     """
-#     try:
-#         async with async_playwright() as p:
-#             browser = await p.chromium.launch(headless=True)
-#             page = await browser.new_page()
-
-#             # Navigate to Google Finance
-#             await page.goto(
-#                 "https://www.google.com/finance/quote/SGD-MYR",
-#                 wait_until="domcontentloaded"
-#             )
-
-#             # Click the 5D tab to get the most current rate
-#             try:
-#                 await page.click('div[role="tab"]:has-text("5D")', timeout=5000)
-#                 # Wait for the rate to update
-#                 await page.wait_for_timeout(1000)
-#             except Exception as e:
-#                 logger.warning(f"Could not click 5D tab: {e}")
-
-#             # Extract rate from page title (updates after 5D click)
-#             # Format: "SGD/MYR 3.1325 (▼0.70%) | Google Finance"
-#             title = await page.title()
-#             match = re.search(r'SGD/MYR\s+(\d+\.\d+)', title)
-#             if match:
-#                 rate = float(match.group(1))
-#                 await browser.close()
-#                 return rate
-
-#             # Fallback: try data-last-price attribute
-#             rate_element = await page.query_selector('[data-last-price]')
-#             if rate_element:
-#                 rate_str = await rate_element.get_attribute('data-last-price')
-#                 if rate_str:
-#                     rate = float(rate_str)
-#                     await browser.close()
-#                     return rate
-
-#             await browser.close()
-
-#     except Exception as e:
-#         logger.error(f"Failed to scrape Google rate: {e}")
-#     return None
+async def scrape_google_rate() -> Optional[float]:
+    async with Stealth().use_async(async_playwright()) as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
+        )
+        page = await context.new_page()
+        url = "https://www.google.com/finance/quote/SGD-MYR"
+        print(f"Navigating to {url}...")
+        try:
+            await page.goto(url) #, wait_until="networkidle")
+            await page.wait_for_selector('div[data-last-price]')
+            rate = await page.locator('div[data-last-price]').get_attribute('data-last-price')
+            return float(rate)
+        except Exception as e:
+            logger.error(f"Failed to scrape Google rate: {e}")
+            return None
+        finally:
+            await browser.close()
 
 
 async def scrape_xe_rate() -> Optional[float]:
@@ -506,41 +480,29 @@ async def scrape_instarem_rate() -> Optional[float]:
 
 
 async def scrape_revolut_rate() -> Optional[float]:
-    """Scrape SGD to MYR rate from Revolut."""
-    try:
-        async with httpx.AsyncClient() as client:
-            # Updated URL format for Revolut
-            response = await client.get(
-                "https://www.revolut.com/en-AU/currency-converter/convert-sgd-to-myr-exchange-rate/",
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                },
-                timeout=10.0,
-                follow_redirects=True
-            )
-            text = response.text
-
-            # Pattern 1: "1 SGD = X.XXXXX MYR" in heading
-            match = re.search(r'1\s*SGD\s*=\s*(\d+\.?\d*)\s*MYR', text, re.IGNORECASE)
-            if match:
-                rate = float(match.group(1))
-                return rate
-
-            # Pattern 2: Look for rate in table cells
-            match = re.search(r'>\s*1\s*SGD\s*<.*?>\s*(\d+\.?\d*)\s*MYR\s*<', text, re.IGNORECASE | re.DOTALL)
-            if match:
-                rate = float(match.group(1))
-                return rate
-
-            # Pattern 3: RM X.XXXXX pattern (Malaysian Ringgit symbol)
-            match = re.search(r'RM\s*(\d+\.\d{3,})', text)
-            if match:
-                rate = float(match.group(1))
-                return rate
-
-    except Exception as e:
-        logger.error(f"Failed to scrape Revolut rate: {e}")
-    return None
+    async with Stealth().use_async(async_playwright()) as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
+        )
+        page = await context.new_page()
+        url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
+        print(f"Navigating to {url}...")
+        try:
+            await page.goto(url, wait_until="networkidle")
+            rate_pattern = re.compile(r"1\s?SGD\s?=\s?\d+\.\d+\s?MYR")
+            rate_locator = page.get_by_text(rate_pattern)
+            await rate_locator.wait_for(state="visible", timeout=1500)
+            full_text = await rate_locator.inner_text()
+            numeric_match = re.search(r"\d+\.\d+", full_text)
+            rate = numeric_match.group(0) if numeric_match else None
+            return float(rate)
+        except Exception as e:
+            logger.error(f"Failed to scrape Revolut rate: {e}")
+            return None
+        finally:
+            await browser.close()
 
 
 async def scrape_exchangerate_api() -> Optional[float]:
@@ -570,8 +532,8 @@ async def scrape_all_rates():
         ("Wise", scrape_wise_rate),           # Works well with regex
         ("CIMB", scrape_cimb_rate),           # Rate in hidden input
         # ("XE", scrape_xe_rate),               # Reliable alternative
-        # ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
-        # ("Revolut", scrape_revolut_rate),     # Often returns 403
+        ("Google", scrape_google_rate),       # Playwright-based, reliable but slower
+        ("Revolut", scrape_revolut_rate),     # Often returns 403
     ]
 
     # Run all scrapers concurrently
