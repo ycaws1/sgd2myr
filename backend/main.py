@@ -28,7 +28,7 @@ def to_utc(dt: datetime) -> datetime:
 from contextlib import asynccontextmanager
 from typing import Optional
 
-import duckdb
+import asyncpg
 import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 SCRAPE_INTERVAL = int(os.getenv("SCRAPE_INTERVAL", 5))
 DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", 30))
-DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rates.duckdb")
+DATABASE_CONNSTR = os.getenv("DATABASE_CONNSTR")
 VOLATILITY_THRESHOLD = float(os.getenv("VOLATILITY_THRESHOLD", 2.0))
 VOLATILITY_PERIOD_MINUTES = int(os.getenv("VOLATILITY_PERIOD_MINUTES", 60))
 
@@ -93,45 +93,51 @@ async def check_threshold_alerts(rates: list):
         return
 
     try:
-        subscriptions = db_conn.execute("""
-            SELECT endpoint, keys_json, threshold, threshold_type
-            FROM subscriptions
-            WHERE threshold IS NOT NULL
-        """).fetchall()
+        async with db_pool.acquire() as conn:
+            subscriptions = await conn.fetch("""
+                SELECT endpoint, keys_json, threshold, threshold_type
+                FROM subscriptions
+                WHERE threshold IS NOT NULL
+            """)
 
-        best_rate = max(rate for _, rate in rates)
+            best_rate = max(rate for _, rate in rates)
 
-        for endpoint, keys_json, threshold, threshold_type in subscriptions:
-            should_notify = False
-            if threshold_type == "above" and best_rate >= threshold:
-                should_notify = True
-            elif threshold_type == "below" and best_rate <= threshold:
-                should_notify = True
-
-            if should_notify:
-                logger.info(f"Threshold alert triggered for {endpoint}: rate {best_rate} {threshold_type} {threshold}")
+            for sub in subscriptions:
+                endpoint = sub['endpoint']
+                keys_json = sub['keys_json']
+                threshold = sub['threshold']
+                threshold_type = sub['threshold_type']
                 
-                try:
-                    keys = json.loads(keys_json)
-                    subscription_info = {
-                        "endpoint": endpoint,
-                        "keys": keys
-                    }
-                    message = json.dumps({
-                        "title": "Rate Alert!",
-                        "body": f"Exchange rate is now {best_rate:.4f} (Threshold: {threshold:.4f})",
-                        "icon": "/icons/icon-192x192.png"
-                    })
-                    await send_push_notification(subscription_info, message)
+                should_notify = False
+                if threshold_type == "above" and best_rate >= threshold:
+                    should_notify = True
+                elif threshold_type == "below" and best_rate <= threshold:
+                    should_notify = True
+
+                if should_notify:
+                    logger.info(f"Threshold alert triggered for {endpoint}: rate {best_rate} {threshold_type} {threshold}")
                     
-                    # One-time alert: Disable threshold after sending
-                    db_conn.execute(
-                        "UPDATE subscriptions SET threshold = NULL WHERE endpoint = ?", 
-                        [endpoint]
-                    )
-                    logger.info(f"Disabled threshold for {endpoint} after alert.")
-                except Exception as e:
-                    logger.error(f"Error processing subscription for {endpoint}: {e}")
+                    try:
+                        keys = json.loads(keys_json)
+                        subscription_info = {
+                            "endpoint": endpoint,
+                            "keys": keys
+                        }
+                        message = json.dumps({
+                            "title": "Rate Alert!",
+                            "body": f"Exchange rate is now {best_rate:.4f} (Threshold: {threshold:.4f})",
+                            "icon": "/icons/icon-192x192.png"
+                        })
+                        await send_push_notification(subscription_info, message)
+                        
+                        # One-time alert: Disable threshold after sending
+                        await conn.execute(
+                            "UPDATE subscriptions SET threshold = NULL WHERE endpoint = $1", 
+                            endpoint
+                        )
+                        logger.info(f"Disabled threshold for {endpoint} after alert.")
+                    except Exception as e:
+                        logger.error(f"Error processing subscription for {endpoint}: {e}")
 
     except Exception as e:
         logger.error(f"Failed to check threshold alerts: {e}")
@@ -140,36 +146,36 @@ async def check_threshold_alerts(rates: list):
 async def send_volatility_notifications(source: str, volatility: float, min_rate: float, max_rate: float):
     """Send volatility alert notifications."""
     try:
-        subscriptions = db_conn.execute("""
-            SELECT endpoint, keys_json
-            FROM subscriptions
-            WHERE volatility_alert = TRUE
-        """).fetchall()
+        async with db_pool.acquire() as conn:
+            subscriptions = await conn.fetch("""
+                SELECT endpoint, keys_json
+                FROM subscriptions
+                WHERE volatility_alert = TRUE
+            """)
 
-        for endpoint, keys_json in subscriptions:
-            logger.info(f"Sending volatility notification to {endpoint}")
-            try:
-                keys = json.loads(keys_json)
-                subscription_info = {
-                    "endpoint": endpoint,
-                    "keys": keys
-                }
-                message = json.dumps({
-                    "title": "High Volatility Alert",
-                    "body": f"{source} rate changed by {volatility:.2f}% ({min_rate:.4f} - {max_rate:.4f})",
-                     "icon": "/icons/icon-192x192.png"
-                })
-                await send_push_notification(subscription_info, message)
-            except Exception as e:
-                 logger.error(f"Error processing volatility sub for {endpoint}: {e}")
+            for sub in subscriptions:
+                endpoint = sub['endpoint']
+                keys_json = sub['keys_json']
+                logger.info(f"Sending volatility notification to {endpoint}")
+                try:
+                    keys = json.loads(keys_json)
+                    subscription_info = {
+                        "endpoint": endpoint,
+                        "keys": keys
+                    }
+                    message = json.dumps({
+                        "title": "High Volatility Alert",
+                        "body": f"{source} rate changed by {volatility:.2f}% ({min_rate:.4f} - {max_rate:.4f})",
+                         "icon": "/icons/icon-192x192.png"
+                    })
+                    await send_push_notification(subscription_info, message)
+                except Exception as e:
+                     logger.error(f"Error processing volatility sub for {endpoint}: {e}")
     except Exception as e:
         logger.error(f"Failed to send volatility notifications: {e}")
 
-# Ensure data directory exists
-os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-
-# Global database connection
-db_conn: Optional[duckdb.DuckDBPyConnection] = None
+# Global database connection pool
+db_pool: Optional[asyncpg.Pool] = None
 scheduler = AsyncIOScheduler()
 
 # Pydantic Models
@@ -211,59 +217,47 @@ class SourceHistory(BaseModel):
 # ... (existing code) ...
 
 
-def init_database():
-    """Initialize DuckDB tables."""
-    global db_conn
-    db_conn = duckdb.connect(DATABASE_PATH)
+async def init_database():
+    """Initialize PostgreSQL tables."""
+    global db_pool
+    if not DATABASE_CONNSTR:
+        logger.error("DATABASE_CONNSTR not set")
+        return
 
-    # Create rates table with timezone support
-    db_conn.execute("""
-        CREATE TABLE IF NOT EXISTS rates (
-            id INTEGER PRIMARY KEY,
-            timestamp TIMESTAMPTZ NOT NULL,
-            source_name VARCHAR NOT NULL,
-            rate DOUBLE NOT NULL
-        )
-    """)
+    db_pool = await asyncpg.create_pool(DATABASE_CONNSTR)
+    
+    async with db_pool.acquire() as conn:
+        # Create rates table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS rates (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMPTZ NOT NULL,
+                source_name VARCHAR NOT NULL,
+                rate DOUBLE PRECISION NOT NULL
+            )
+        """)
 
-    # Create sequence for auto-increment if not exists
-    try:
-        db_conn.execute("CREATE SEQUENCE IF NOT EXISTS rates_id_seq START 1")
-    except Exception:
-        pass
+        # Create subscriptions table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id SERIAL PRIMARY KEY,
+                endpoint VARCHAR UNIQUE NOT NULL,
+                keys_json VARCHAR NOT NULL,
+                threshold DOUBLE PRECISION,
+                threshold_type VARCHAR DEFAULT 'above',
+                volatility_alert BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-    # Create subscriptions table with timezone support
-    db_conn.execute("""
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY,
-            endpoint VARCHAR UNIQUE NOT NULL,
-            keys_json VARCHAR NOT NULL,
-            threshold DOUBLE,
-            threshold_type VARCHAR DEFAULT 'above',
-            volatility_alert BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    try:
-        db_conn.execute("CREATE SEQUENCE IF NOT EXISTS subscriptions_id_seq START 1")
-    except Exception:
-        pass
-
-    # Create index for faster queries
-    db_conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_rates_timestamp
-        ON rates(timestamp)
-    """)
-    db_conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_rates_source
-        ON rates(source_name)
-    """)
+        # Create indices
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_rates_timestamp ON rates(timestamp)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_rates_source ON rates(source_name)")
 
     logger.info("Database initialized successfully")
 
 
-def save_rate(source_name: str, rate: float, timestamp: Optional[datetime] = None):
+async def save_rate(source_name: str, rate: float, timestamp: Optional[datetime] = None):
     """Save a rate to the database."""
     try:
         # Use UTC timezone for storage
@@ -274,13 +268,14 @@ def save_rate(source_name: str, rate: float, timestamp: Optional[datetime] = Non
         else:
             timestamp = timestamp.astimezone(UTC)
 
-        db_conn.execute(
-            """
-            INSERT INTO rates (id, timestamp, source_name, rate)
-            VALUES (nextval('rates_id_seq'), ?, ?, ?)
-            """,
-            [timestamp, source_name, rate]
-        )
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO rates (timestamp, source_name, rate)
+                VALUES ($1, $2, $3)
+                """,
+                timestamp, source_name, rate
+            )
         logger.info(f"Saved rate for {source_name}: {rate}")
     except Exception as e:
         logger.error(f"Failed to save rate for {source_name}: {e}")
@@ -290,34 +285,39 @@ async def check_volatility_alerts():
     """Check if rate volatility exceeds threshold."""
     try:
         cutoff = datetime.now(UTC) - timedelta(minutes=VOLATILITY_PERIOD_MINUTES)
-        result = db_conn.execute("""
-            SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
-            FROM rates
-            WHERE timestamp > ?
-            GROUP BY source_name
-        """, [cutoff]).fetchall()
+        async with db_pool.acquire() as conn:
+            result = await conn.fetch("""
+                SELECT source_name, MIN(rate) as min_rate, MAX(rate) as max_rate
+                FROM rates
+                WHERE timestamp > $1
+                GROUP BY source_name
+            """, cutoff)
 
-        for source_name, min_rate, max_rate in result:
-            if min_rate > 0:
-                volatility = ((max_rate - min_rate) / min_rate) * 100
-                if volatility >= VOLATILITY_THRESHOLD:
-                    logger.warning(
-                        f"Volatility alert for {source_name}: {volatility:.2f}% "
-                        f"(min: {min_rate}, max: {max_rate})"
-                    )
-                    await send_volatility_notifications(source_name, volatility, min_rate, max_rate)
+            for row in result:
+                source_name = row['source_name']
+                min_rate = row['min_rate']
+                max_rate = row['max_rate']
+                if min_rate > 0:
+                    volatility = ((max_rate - min_rate) / min_rate) * 100
+                    if volatility >= VOLATILITY_THRESHOLD:
+                        logger.warning(
+                            f"Volatility alert for {source_name}: {volatility:.2f}% "
+                            f"(min: {min_rate}, max: {max_rate})"
+                        )
+                        await send_volatility_notifications(source_name, volatility, min_rate, max_rate)
     except Exception as e:
         logger.error(f"Failed to check volatility: {e}")
 
 
-def cleanup_old_data():
+async def cleanup_old_data():
     """Delete records older than retention period."""
     try:
         cutoff = datetime.now(UTC) - timedelta(days=DATA_RETENTION_DAYS)
-        result = db_conn.execute(
-            "DELETE FROM rates WHERE timestamp < ?",
-            [cutoff]
-        )
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM rates WHERE timestamp < $1",
+                cutoff
+            )
         logger.info(f"Cleaned up old rate records (older than {DATA_RETENTION_DAYS} days)")
     except Exception as e:
         logger.error(f"Failed to cleanup old data: {e}")
@@ -589,7 +589,7 @@ async def scrape_all_rates():
             logger.error(f"Scraper {source_name} raised exception: {result}")
             continue
         if result is not None:
-            save_rate(source_name, result, timestamp=now_utc)
+            await save_rate(source_name, result, timestamp=now_utc)
             rates_collected.append((source_name, result))
         else:
             logger.warning(f"No rate obtained from {source_name}")
@@ -599,13 +599,13 @@ async def scrape_all_rates():
         playwright_rates = await scrape_google_n_revolut_rate()
         # First result is Google
         if playwright_rates[0] is not None:
-            save_rate("Google", playwright_rates[0], timestamp=now_utc)
+            await save_rate("Google", playwright_rates[0], timestamp=now_utc)
             rates_collected.append(("Google", playwright_rates[0]))
         else:
             logger.warning("No rate obtained from Google")
         # Second result is Revolut
         if playwright_rates[1] is not None:
-            save_rate("Revolut", playwright_rates[1], timestamp=now_utc)
+            await save_rate("Revolut", playwright_rates[1], timestamp=now_utc)
             rates_collected.append(("Revolut", playwright_rates[1]))
         else:
             logger.warning("No rate obtained from Revolut")    
@@ -617,7 +617,7 @@ async def scrape_all_rates():
         logger.warning("No rates collected from primary sources, using fallback API")
         fallback_rate = await scrape_exchangerate_api()
         if fallback_rate:
-            save_rate("ExchangeRate-API", fallback_rate, timestamp=now_utc)
+            await save_rate("ExchangeRate-API", fallback_rate, timestamp=now_utc)
             rates_collected.append(("ExchangeRate-API", fallback_rate))
 
     # Check for volatility alerts
@@ -637,7 +637,7 @@ async def scrape_all_rates():
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    init_database()
+    await init_database()
 
     # Schedule scraping job
     scheduler.add_job(
@@ -668,8 +668,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     scheduler.shutdown()
-    if db_conn:
-        db_conn.close()
+    if db_pool:
+        await db_pool.close()
     logger.info("Application shutdown complete.")
 
 
@@ -709,22 +709,23 @@ async def root():
 async def get_latest_rates():
     """Get the most recent rate for all sources."""
     try:
-        result = db_conn.execute("""
-            WITH latest AS (
-                SELECT source_name, MAX(timestamp) as max_ts
-                FROM rates
-                GROUP BY source_name
-            )
-            SELECT r.source_name, r.rate, r.timestamp
-            FROM rates r
-            INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
-            ORDER BY r.rate DESC
-        """).fetchall()
+        async with db_pool.acquire() as conn:
+            result = await conn.fetch("""
+                WITH latest AS (
+                    SELECT source_name, MAX(timestamp) as max_ts
+                    FROM rates
+                    GROUP BY source_name
+                )
+                SELECT r.source_name, r.rate, r.timestamp
+                FROM rates r
+                INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
+                ORDER BY r.rate DESC
+            """)
 
-        return [
-            RateResponse(source_name=row[0], rate=row[1], timestamp=to_utc(row[2]))
-            for row in result
-        ]
+            return [
+                RateResponse(source_name=row['source_name'], rate=row['rate'], timestamp=to_utc(row['timestamp']))
+                for row in result
+            ]
     except Exception as e:
         logger.error(f"Failed to get latest rates: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve rates")
@@ -736,24 +737,28 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
     try:
         cutoff = datetime.now(UTC) - timedelta(days=days)
 
-        if source:
-            result = db_conn.execute("""
-                SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
-                FROM rates
-                WHERE timestamp > ? AND source_name = ?
-                ORDER BY timestamp ASC
-            """, [cutoff, source]).fetchall()
-        else:
-            result = db_conn.execute("""
-                SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
-                FROM rates
-                WHERE timestamp > ?
-                ORDER BY timestamp ASC
-            """, [cutoff]).fetchall()
+        async with db_pool.acquire() as conn:
+            if source:
+                result = await conn.fetch("""
+                    SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
+                    FROM rates
+                    WHERE timestamp > $1 AND source_name = $2
+                    ORDER BY timestamp ASC
+                """, cutoff, source)
+            else:
+                result = await conn.fetch("""
+                    SELECT date_trunc('minute', timestamp) as timestamp, source_name, rate
+                    FROM rates
+                    WHERE timestamp > $1
+                    ORDER BY timestamp ASC
+                """, cutoff)
 
         # Group by source for easier charting
         trends = {}
-        for timestamp, source_name, rate in result:
+        for row in result:
+            timestamp = row['timestamp']
+            source_name = row['source_name']
+            rate = row['rate']
             if source_name not in trends:
                 trends[source_name] = []
             trends[source_name].append({
@@ -774,18 +779,19 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
 async def get_alert_status(endpoint: str):
     """Get current subscription status."""
     try:
-        result = db_conn.execute("""
-            SELECT threshold, threshold_type, volatility_alert
-            FROM subscriptions
-            WHERE endpoint = ?
-        """, [endpoint]).fetchone()
+        async with db_pool.acquire() as conn:
+            result = await conn.fetchrow("""
+                SELECT threshold, threshold_type, volatility_alert
+                FROM subscriptions
+                WHERE endpoint = $1
+            """, endpoint)
 
         if result:
             return {
-                "threshold": result[0],
-                "threshold_type": result[1],
-                "volatility_alert": bool(result[2]),
-                "threshold_enabled": result[0] is not None
+                "threshold": result['threshold'],
+                "threshold_type": result['threshold_type'],
+                "volatility_alert": bool(result['volatility_alert']),
+                "threshold_enabled": result['threshold'] is not None
             }
         return {
             "threshold": None,
@@ -804,22 +810,23 @@ async def subscribe_alerts(subscription: AlertSubscription):
     try:
         keys_json = json.dumps(subscription.keys)
 
-        # Upsert subscription
-        db_conn.execute("""
-            INSERT INTO subscriptions (id, endpoint, keys_json, threshold, threshold_type, volatility_alert)
-            VALUES (nextval('subscriptions_id_seq'), ?, ?, ?, ?, ?)
-            ON CONFLICT (endpoint) DO UPDATE SET
-                keys_json = EXCLUDED.keys_json,
-                threshold = EXCLUDED.threshold,
-                threshold_type = EXCLUDED.threshold_type,
-                volatility_alert = EXCLUDED.volatility_alert
-        """, [
-            subscription.endpoint,
-            keys_json,
-            subscription.threshold,
-            subscription.threshold_type,
-            subscription.volatility_alert
-        ])
+        async with db_pool.acquire() as conn:
+            # Upsert subscription
+            await conn.execute("""
+                INSERT INTO subscriptions (endpoint, keys_json, threshold, threshold_type, volatility_alert)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (endpoint) DO UPDATE SET
+                    keys_json = EXCLUDED.keys_json,
+                    threshold = EXCLUDED.threshold,
+                    threshold_type = EXCLUDED.threshold_type,
+                    volatility_alert = EXCLUDED.volatility_alert
+            """, 
+                subscription.endpoint,
+                keys_json,
+                subscription.threshold,
+                subscription.threshold_type,
+                subscription.volatility_alert
+            )
 
         return {"status": "subscribed", "endpoint": subscription.endpoint}
     except Exception as e:
@@ -831,7 +838,8 @@ async def subscribe_alerts(subscription: AlertSubscription):
 async def unsubscribe_alerts(endpoint: str):
     """Unsubscribe from push notifications."""
     try:
-        db_conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", [endpoint])
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM subscriptions WHERE endpoint = $1", endpoint)
         return {"status": "unsubscribed", "endpoint": endpoint}
     except Exception as e:
         logger.error(f"Failed to unsubscribe: {e}")
@@ -842,21 +850,22 @@ async def unsubscribe_alerts(endpoint: str):
 async def get_best_rate():
     """Get the current best rate among all sources."""
     try:
-        result = db_conn.execute("""
-            WITH latest AS (
-                SELECT source_name, MAX(timestamp) as max_ts
-                FROM rates
-                GROUP BY source_name
-            )
-            SELECT r.source_name, r.rate, r.timestamp
-            FROM rates r
-            INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
-            ORDER BY r.rate DESC
-            LIMIT 1
-        """).fetchone()
+        async with db_pool.acquire() as conn:
+            result = await conn.fetchrow("""
+                WITH latest AS (
+                    SELECT source_name, MAX(timestamp) as max_ts
+                    FROM rates
+                    GROUP BY source_name
+                )
+                SELECT r.source_name, r.rate, r.timestamp
+                FROM rates r
+                INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
+                ORDER BY r.rate DESC
+                LIMIT 1
+            """)
 
         if result:
-            return RateResponse(source_name=result[0], rate=result[1], timestamp=to_utc(result[2]))
+            return RateResponse(source_name=result['source_name'], rate=result['rate'], timestamp=to_utc(result['timestamp']))
         else:
             raise HTTPException(status_code=404, detail="No rates available")
     except HTTPException:
@@ -872,18 +881,19 @@ async def convert_currency(request: ConversionRequest):
     try:
         if request.source:
             # Get latest rate for specific source
-            result = db_conn.execute("""
-                SELECT source_name, rate, timestamp
-                FROM rates
-                WHERE source_name = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
-            """, [request.source]).fetchone()
+            async with db_pool.acquire() as conn:
+                result = await conn.fetchrow("""
+                    SELECT source_name, rate, timestamp
+                    FROM rates
+                    WHERE source_name = $1
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """, request.source)
             
             if not result:
                 raise HTTPException(status_code=404, detail=f"No rate found for source: {request.source}")
             
-            best = RateResponse(source_name=result[0], rate=result[1], timestamp=to_utc(result[2]))
+            best = RateResponse(source_name=result['source_name'], rate=result['rate'], timestamp=to_utc(result['timestamp']))
         else:
             best = await get_best_rate()
 
@@ -906,24 +916,27 @@ async def convert_currency(request: ConversionRequest):
 async def get_rates_history():
     """Get the last 5 records for each source."""
     try:
-        # DuckDB supports window functions effectively
-        result = db_conn.execute("""
-            WITH RankedRates AS (
-                SELECT 
-                    source_name, 
-                    rate, 
-                    date_trunc('minute', timestamp) as timestamp,
-                    ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY timestamp DESC) as rn
-                FROM rates
-            )
-            SELECT source_name, rate, timestamp
-            FROM RankedRates
-            WHERE rn <= 5
-            ORDER BY source_name ASC, timestamp DESC
-        """).fetchall()
+        async with db_pool.acquire() as conn:
+            result = await conn.fetch("""
+                WITH RankedRates AS (
+                    SELECT 
+                        source_name, 
+                        rate, 
+                        date_trunc('minute', timestamp) as timestamp,
+                        ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY timestamp DESC) as rn
+                    FROM rates
+                )
+                SELECT source_name, rate, timestamp
+                FROM RankedRates
+                WHERE rn <= 5
+                ORDER BY source_name ASC, timestamp DESC
+            """)
 
         history_map = {}
-        for source, rate, timestamp in result:
+        for row in result:
+            source = row['source_name']
+            rate = row['rate']
+            timestamp = row['timestamp']
             if source not in history_map:
                 history_map[source] = []
             history_map[source].append(RateHistoryItem(rate=rate, timestamp=to_utc(timestamp)))
@@ -981,7 +994,8 @@ async def health_check():
     """Health check endpoint."""
     try:
         # Check database connection
-        db_conn.execute("SELECT 1").fetchone()
+        async with db_pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
         return {
             "status": "healthy",
             "database": "connected",
