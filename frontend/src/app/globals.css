@@ -83,9 +83,9 @@ body {
 }
 
 /* PWA Interaction Fixes */
-input, 
-select, 
-textarea, 
+input,
+select,
+textarea,
 button {
   font-family: inherit;
   /* Ensure these are always clickable on iOS Standalone */
@@ -101,20 +101,25 @@ input[type="tel"],
 input[inputmode="decimal"],
 textarea {
   cursor: text;
-  font-size: 16px !important; /* Prevents iOS auto-zoom */
+  font-size: 16px !important;
+  /* Prevents iOS auto-zoom */
 }
 
 /* Fix: iOS PWA standalone mode makes inputs unresponsive */
 @media all and (display-mode: standalone) {
   body {
-    user-select: none; /* Prevent accidental text selection of UI */
     -webkit-tap-highlight-color: transparent;
+    /* Removed user-select: none as it can interfere with input focus in some iOS versions */
   }
-  
-  /* But allow selection in inputs */
-  input, textarea {
+
+  input,
+  textarea,
+  select {
     user-select: text !important;
     -webkit-user-select: text !important;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto !important;
   }
 }
 
@@ -126,6 +131,7 @@ textarea {
   from {
     box-shadow: 0 0 20px -10px var(--accent-primary);
   }
+
   to {
     box-shadow: 0 0 30px 2px var(--accent-primary);
   }

@@ -18,30 +18,20 @@ export function StandaloneInputFix() {
 
     console.log("iOS Standalone mode detected: Applying input fix");
 
-    const handleTouchStart = (e: TouchEvent) => {
+    const handleTouchEnd = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
+      const interactiveEl = target.closest('input, textarea, select') as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
-      // Look for input, select, textarea or their parent wrappers
-      const interactiveEl = target.closest('input, select, textarea, button, [role="button"]') as HTMLElement;
-
-      if (interactiveEl) {
-        // If it's an input/textarea, focus it
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(interactiveEl.tagName)) {
-          if (document.activeElement !== interactiveEl) {
-            // Delay slightly to allow native behavior but ensure focus
-            setTimeout(() => {
-              interactiveEl.focus();
-            }, 10);
-          }
-        }
+      if (interactiveEl && document.activeElement !== interactiveEl) {
+        // iOS requires focus to be synchronous with user action to trigger keyboard
+        interactiveEl.focus();
       }
     };
 
-    // Use passive: false to ensure we can capture but we're not blocking
-    document.addEventListener("touchstart", handleTouchStart as any, { passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     return () => {
-      document.removeEventListener("touchstart", handleTouchStart as any);
+      document.removeEventListener("touchend", handleTouchEnd);
     };
   }, []);
 

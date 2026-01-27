@@ -2,7 +2,6 @@ FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
 WORKDIR /app
 
-# Set timezone env before installing tzdata
 ENV TZ=Asia/Singapore \
     DEBIAN_FRONTEND=noninteractive
 
@@ -13,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     novnc \
     websockify \
     fluxbox \
+    playwright \
     && rm -rf /var/lib/apt/lists/*
 
-# Re-install playwright browser to ensure it's matched with the image
 RUN playwright install chromium \
     && playwright install-deps
 

@@ -187,10 +187,13 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
               <option value="below">Below or Equal</option>
             </select>
             <input
-              type="text"
+              type="tel"
               inputMode="decimal"
               value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9.]/g, '');
+                setThreshold(val);
+              }}
               placeholder={currentRate?.toFixed(4) || "3.4500"}
               className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-lg px-3 py-1 text-xs text-white focus:outline-none focus:border-accent-primary font-mono text-center"
             />

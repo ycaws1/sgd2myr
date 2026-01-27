@@ -53,17 +53,21 @@ export function Converter({ bestRate, rates }: ConverterProps) {
         </div>
       </div>
 
-      <div className="space-y-4">
+      <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
         {/* SGD Input */}
         <div className="relative group">
           <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 font-bold pointer-events-none transition-colors group-focus-within:text-accent-primary">
             SGD
           </div>
           <input
-            type="text"
+            type="tel"
             inputMode="decimal"
             value={sgdAmount}
-            onChange={(e) => setSgdAmount(e.target.value)}
+            onChange={(e) => {
+              // Only allow digits and decimal point
+              const val = e.target.value.replace(/[^0-9.]/g, '');
+              setSgdAmount(val);
+            }}
             className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-16 pr-6 text-2xl font-bold text-white focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary transition-all tabular-nums"
             placeholder="0.00"
           />
@@ -85,7 +89,7 @@ export function Converter({ bestRate, rates }: ConverterProps) {
             {myrAmount || "0.00"}
           </div>
         </div>
-      </div>
+      </form>
 
       {currentRate && (
         <div className="mt-6 flex items-start gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
