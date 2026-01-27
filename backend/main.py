@@ -214,6 +214,11 @@ class SourceHistory(BaseModel):
     recent_rates: list[RateHistoryItem]
 
 
+class PushTestRequest(BaseModel):
+    endpoint: str
+    keys: dict
+
+
 # ... (existing code) ...
 
 
@@ -817,6 +822,23 @@ async def subscribe_alerts(subscription: AlertSubscription):
     except Exception as e:
         logger.error(f"Failed to subscribe: {e}")
         raise HTTPException(status_code=500, detail="Failed to subscribe")
+
+@app.post("/alerts/test")
+async def send_test_alert(request: PushTestRequest):
+    """Send a test push notification."""
+    subscription_info = {
+        "endpoint": request.endpoint,
+        "keys": request.keys
+    }
+    
+    message = json.dumps({
+        "title": "Test Notification",
+        "body": "Your alerts are working correctly! 🚀",
+        "icon": "/icons/icon-192x192.png"
+    })
+    
+    await send_push_notification(subscription_info, message)
+    return {"status": "success"}
 
 @app.get("/health")
 async def health_check():
