@@ -25,23 +25,25 @@ export function useRates(pollInterval = 60000) {
       const data: Rate[] = await latestRes.json();
       const historyData: SourceHistory[] = await historyRes.json();
 
-      setRates(data);
-      setHistory(historyData);
-
       if (data.length > 0) {
         // Find the maximum timestamp across all latest rates to determine the "freshest" data point
         const maxTimestamp = Math.max(...data.map(r => new Date(r.timestamp).getTime()));
-
-        // Find the highest rate that is within 5 minutes of the freshest timestamp
         const fiveMinutesInMs = 5 * 60 * 1000;
-        const freshBestRate = data.find(rate => {
+
+        // Filter sources that are older than 5 minutes from the freshest update
+        const filteredRates = data.filter(rate => {
           const rateTime = new Date(rate.timestamp).getTime();
           return (maxTimestamp - rateTime) <= fiveMinutesInMs;
         });
 
-        setBestRate(freshBestRate || data[0]);
+        setRates(filteredRates);
+        setBestRate(filteredRates.length > 0 ? filteredRates[0] : data[0]);
+      } else {
+        setRates([]);
+        setBestRate(null);
       }
 
+      setHistory(historyData);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
