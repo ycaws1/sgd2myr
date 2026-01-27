@@ -349,12 +349,14 @@ async def scrape_google_n_revolut_rate():
         
         url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
         print(f"Navigating to {url}...")
+        await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         try:
             await page_2.goto(url, wait_until="networkidle")
             if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
                 await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
             # await page_2.locator('button[role="tab"]', has_text="1d").click()
             await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible", timeout=5000)
+            await page_2.locator('foreignObject span', has_text="RM").scroll_into_view_if_needed()
             text = await page_2.locator('foreignObject span', has_text="RM").text_content()
             text = text.replace('\xa0', ' ')
             match = re.search(r'RM\s*([\d.]+)', text)
@@ -367,6 +369,7 @@ async def scrape_google_n_revolut_rate():
                 f.write(inner_html)
             logger.error(f"Failed to scrape Revolut rate: {e}")
             page_2_rate = None
+        await context.tracing.stop(path="trace.zip")
         
         await browser.close()
         return [page_1_rate, page_2_rate]
@@ -1008,7 +1011,7 @@ async def health_check():
 async def get_debug_file(file_type: str):
     """
     Access debug files. 
-    Usage: /debug/image or /debug/html
+    Usage: /debug/image or /debug/html or /debug/zip
     """
     if file_type == "image":
         file_path = "revolut_error.png"
@@ -1016,11 +1019,14 @@ async def get_debug_file(file_type: str):
     elif file_type == "html":
         file_path = "revolut_error.html"
         media = "text/html"
+    elif file_type == "zip":
+        file_path = "trace.zip"
+        media = "application/zip"
     else:
         raise HTTPException(status_code=400, detail="Invalid file type. Use 'image' or 'html'.")
 
     if os.path.exists(file_path):
-        return FileResponse(file_path, media_type=media)
+        return FileResponse(file_path, media_type=media, filename=os.path.basename(file_path))
     else:
         raise HTTPException(status_code=404, detail="File not found. No errors recorded yet.")
     

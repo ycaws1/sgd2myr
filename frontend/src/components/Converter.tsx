@@ -33,11 +33,6 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
     return (amount * currentRate.rate).toFixed(2);
   }, [currentRate, sgdAmount]);
 
-  // Force focus for iOS Standalone Mode
-  const handleInputInteraction = (e: React.MouseEvent | React.TouchEvent) => {
-    const target = e.currentTarget as HTMLInputElement;
-    target.focus();
-  };
 
   return (
     <section className="px-4 py-4 border-t border-dark-border">
@@ -48,7 +43,6 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
         <select
           value={selectedSource}
           onChange={(e) => setSelectedSource(e.target.value)}
-          onClick={(e) => (e.currentTarget as HTMLSelectElement).focus()}
           className="bg-dark-card text-white text-sm px-3 py-1 rounded border border-dark-border focus:border-accent-green outline-none"
           disabled={!rates.length}
         >
@@ -71,8 +65,6 @@ export function Converter({ bestRate, rates }: { bestRate: Rate | null, rates: R
               pattern="[0-9]*\.?[0-9]*"
               value={sgdAmount}
               onChange={(e) => setSgdAmount(e.target.value)}
-              onClick={handleInputInteraction}
-              onTouchStart={handleInputInteraction}
               className="flex-1 bg-transparent py-3 pr-3 text-white text-right font-mono focus:outline-none w-full"
               placeholder="0"
             />

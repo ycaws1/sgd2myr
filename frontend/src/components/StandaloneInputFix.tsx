@@ -19,43 +19,28 @@ export function StandaloneInputFix() {
     const handleFocus = (e: Event) => {
       const target = e.target as HTMLElement;
 
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLSelectElement ||
-        target instanceof HTMLTextAreaElement
-      ) {
-        // Force focus and ensure it's selected if it's an input
-        target.focus();
+      // Check if it's an input-like element
+      const isInput =
+        target.tagName === 'INPUT' ||
+        target.tagName === 'SELECT' ||
+        target.tagName === 'TEXTAREA';
 
-        // For text inputs on iOS, sometimes we need to scroll it into view
-        if (target instanceof HTMLInputElement &&
-          (target.type === 'text' || target.type === 'number')) {
-          setTimeout(() => {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }, 300);
+      if (isInput) {
+        // Only focus if not already focused to avoid keyboard flickering
+        if (document.activeElement !== target) {
+          (target as HTMLElement).focus();
         }
       }
     };
 
-    // Use touchstart for faster response on iOS
-    const handleTouchStart = (e: TouchEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLSelectElement ||
-        target instanceof HTMLTextAreaElement
-      ) {
-        // Don't prevent default as it might block the actual focus
-        // but we can try to focus it immediately
-        target.focus();
-      }
-    };
-
-    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    // Use touchstart as it's more reliable for focus in iOS Standalone
+    // but we use a small check to avoid interfering with natural behavior
+    document.addEventListener("touchstart", handleFocus, { passive: true });
+    // Keep click for fallback
     document.addEventListener("click", handleFocus, { passive: true });
 
     return () => {
-      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchstart", handleFocus);
       document.removeEventListener("click", handleFocus);
     };
   }, []);

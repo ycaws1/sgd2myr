@@ -214,7 +214,6 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
           <select
             value={thresholdType}
             onChange={(e) => setThresholdType(e.target.value as "above" | "below")}
-            onClick={(e) => (e.currentTarget as HTMLSelectElement).focus()}
             className="bg-dark-card text-white text-sm px-2 py-1 rounded border border-dark-border"
           >
             <option value="above">≥</option>
@@ -227,8 +226,6 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
             placeholder={currentRate?.toFixed(4) || "3.4500"}
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
-            onClick={(e) => (e.currentTarget as HTMLInputElement).focus()}
-            onTouchStart={(e) => (e.currentTarget as HTMLInputElement).focus()}
             className="w-24 bg-dark-card text-white text-sm px-3 py-1 rounded border border-dark-border focus:border-accent-green focus:outline-none"
           />
         </div>
