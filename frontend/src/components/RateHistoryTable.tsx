@@ -12,20 +12,31 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
     // Extract all source names for columns
     const sourceNames = history.map(h => h.source_name).sort();
 
-    // Determine max rows (should be 5 based on backend, but safe to check)
-    const maxRows = Math.max(...history.map(h => h.recent_rates.length));
+    // 1. Get all unique timestamps from all sources
+    const allTimestamps = new Set<string>();
+    history.forEach(h => {
+        h.recent_rates.forEach(r => {
+            allTimestamps.add(new Date(r.timestamp).toISOString());
+        });
+    });
 
-    // Generate rows
-    const rows = Array.from({ length: maxRows }, (_, index) => {
-        // Find a valid timestamp for this row (use the first available one)
-        const timestampStr = history.find(h => h.recent_rates[index])?.recent_rates[index].timestamp;
+    // 2. Sort timestamps descending and take the top 5
+    const sortedTimestamps = Array.from(allTimestamps)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+        .slice(0, 5);
 
+    // 3. Generate rows based on these timestamps
+    const rows = sortedTimestamps.map((ts, index) => {
+        const timestamp = new Date(ts);
         return {
             index,
-            timestamp: timestampStr ? new Date(timestampStr) : null,
+            timestamp,
             rates: sourceNames.map(source => {
                 const sourceData = history.find(h => h.source_name === source);
-                const rateData = sourceData?.recent_rates[index];
+                // Find the rate for this source at this EXACT timestamp
+                const rateData = sourceData?.recent_rates.find(r =>
+                    new Date(r.timestamp).toISOString() === ts
+                );
                 return rateData ? rateData.rate : null;
             })
         };
