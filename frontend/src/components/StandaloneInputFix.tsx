@@ -14,25 +14,9 @@ export function StandaloneInputFix() {
       (window.navigator as any).standalone ||
       window.matchMedia("(display-mode: standalone)").matches;
 
-    if (!isStandalone) return;
-
-    console.log("iOS Standalone mode detected: Applying input fix");
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      const target = e.target as HTMLElement;
-      const interactiveEl = target.closest('input, textarea, select') as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-
-      if (interactiveEl && document.activeElement !== interactiveEl) {
-        // iOS requires focus to be synchronous with user action to trigger keyboard
-        interactiveEl.focus();
-      }
-    };
-
-    document.addEventListener("touchend", handleTouchEnd, { passive: true });
-
-    return () => {
-      document.removeEventListener("touchend", handleTouchEnd);
-    };
+    // Temporarily disabled programmatic focus to test if native behavior is better with updated CSS
+    // as programmatic focus can sometimes focus the element (showing cursor) but fail to trigger the keyboard.
+    return;
   }, []);
 
   return null;

@@ -85,14 +85,15 @@ body {
 /* PWA Interaction Fixes */
 input,
 select,
-textarea,
+textarea {
+  font-family: inherit;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
 button {
   font-family: inherit;
-  /* Ensure these are always clickable on iOS Standalone */
   cursor: pointer;
-  pointer-events: auto !important;
-  -webkit-user-select: auto !important;
-  user-select: auto !important;
 }
 
 input[type="text"],

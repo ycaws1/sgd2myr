@@ -25,7 +25,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-dark-bg text-white min-h-screen">
-        <StandaloneInputFix />
         {children}
       </body>
     </html>

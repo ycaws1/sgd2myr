@@ -60,8 +60,13 @@ export function Converter({ bestRate, rates }: ConverterProps) {
             SGD
           </div>
           <input
-            type="tel"
+            id="sgdAmount"
+            name="sgdAmount"
+            type="text"
             inputMode="decimal"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
             value={sgdAmount}
             onChange={(e) => {
               // Only allow digits and decimal point

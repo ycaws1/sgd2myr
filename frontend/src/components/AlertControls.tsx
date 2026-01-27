@@ -187,8 +187,13 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
               <option value="below">Below or Equal</option>
             </select>
             <input
-              type="tel"
+              id="alertThreshold"
+              name="alertThreshold"
+              type="text"
               inputMode="decimal"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
               value={threshold}
               onChange={(e) => {
                 const val = e.target.value.replace(/[^0-9.]/g, '');
