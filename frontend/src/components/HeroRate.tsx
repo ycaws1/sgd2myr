@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Rate } from "@/types";
 import { TrendingUp, RefreshCw } from "lucide-react";
+import { Rate } from "@/types";
 
 interface HeroRateProps {
   bestRate: Rate | null;
@@ -11,68 +10,55 @@ interface HeroRateProps {
   onRefresh: () => void;
 }
 
-function formatTimeAgo(date: Date, now: number): string {
-  const diffInSeconds = Math.floor((now - date.getTime()) / 1000);
-
-  if (diffInSeconds < 5) return "just now";
-  if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
-
-  const minutes = Math.floor(diffInSeconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  return date.toLocaleDateString();
-}
-
 export function HeroRate({ bestRate, lastUpdated, loading, onRefresh }: HeroRateProps) {
-  const [now, setNow] = useState(Date.now());
-
-  // Update the relative time every second for the "count up" feel
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const formattedTime = lastUpdated
+    ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : "--:--:--";
 
   return (
-    <section className="px-4 pt-8 pb-6">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-accent-green" />
-          <span className="text-sm text-gray-400 uppercase tracking-wide">Best Rate</span>
+    <section className="relative pt-16 pb-12 px-6 text-center overflow-hidden">
+      {/* Background Glow */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-80 bg-accent-primary/20 blur-[120px] -z-10 rounded-full" />
+
+      <div className="flex flex-col items-center gap-3 mb-8">
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-accent-primary/10 border border-accent-primary/20 rounded-full text-accent-primary text-[10px] font-bold uppercase tracking-[0.2em]">
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>Real-time Market Rate</span>
         </div>
+        <h1 className="text-sm font-medium text-gray-400 tracking-[0.3em] uppercase">
+          SGD TO MYR
+        </h1>
+      </div>
+
+      <div className={`relative inline-block transition-all duration-700 ${loading ? 'opacity-50 scale-95 blur-sm' : 'opacity-100 scale-100'}`}>
+        <div className="text-8xl font-bold mb-3 tracking-tighter tabular-nums text-white">
+          {bestRate ? bestRate.rate.toFixed(4) : "0.0000"}
+        </div>
+        {bestRate && (
+          <div className="flex items-center justify-center gap-2">
+            <div className="h-[1px] w-8 bg-gradient-to-r from-transparent to-gray-600" />
+            <div className="text-sm text-gray-400 font-medium whitespace-nowrap">
+              via <span className="text-accent-primary font-semibold">{bestRate.source_name}</span>
+            </div>
+            <div className="h-[1px] w-8 bg-gradient-to-l from-transparent to-gray-600" />
+          </div>
+        )}
+      </div>
+
+      <div className="mt-12 flex items-center justify-center gap-4">
+        <div className="text-xs text-gray-500 bg-white/5 border border-white/10 px-5 py-2.5 rounded-2xl backdrop-blur-xl">
+          <span className="opacity-60">Updated:</span> <span className="text-gray-200 ml-1 font-mono">{formattedTime}</span>
+        </div>
+
         <button
           onClick={onRefresh}
           disabled={loading}
-          className="p-2 rounded-full hover:bg-dark-card transition-colors"
+          className="p-3.5 glass-card hover:bg-white/10 active:scale-90 transition-all group disabled:opacity-50"
+          aria-label="Refresh rates"
         >
-          <RefreshCw className={`w-5 h-5 text-gray-400 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-5 h-5 text-accent-primary ${loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-700'}`} />
         </button>
       </div>
-
-      {bestRate ? (
-        <>
-          <div className="flex items-baseline gap-2">
-            <span className="text-5xl font-bold tracking-tight">
-              {bestRate.rate.toFixed(4)}
-            </span>
-            <span className="text-2xl text-gray-400">MYR</span>
-          </div>
-
-          <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-            <span>1 SGD via {bestRate.source_name}</span>
-            {lastUpdated && (
-              <>
-                <span>•</span>
-                <span>{formatTimeAgo(lastUpdated, now)}</span>
-              </>
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="text-3xl text-gray-500">Loading...</div>
-      )}
     </section>
   );
 }

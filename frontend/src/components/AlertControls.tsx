@@ -1,22 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bell, BellOff, Activity } from "lucide-react";
+import { Bell, BellOff, Activity, Send, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface AlertControlsProps {
   currentRate: number | null;
 }
 
-// Helper to convert VAPID key
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/\-/g, "+")
-    .replace(/_/g, "/");
-
+  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
-
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i);
   }
@@ -33,7 +28,6 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Load from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("alertSettings");
     if (saved) {
@@ -45,58 +39,48 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     }
   }, []);
 
-  // Check subscription status and sync with backend
   useEffect(() => {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          registration.pushManager.getSubscription().then(async (sub) => {
-            if (sub) {
-              setIsSubscribed(true);
-              // Sync Status from Backend
-              try {
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/status?endpoint=${encodeURIComponent(sub.endpoint)}`);
-                if (res.ok) {
-                  const data = await res.json();
-                  setThresholdEnabled(data.threshold_enabled);
-                  setVolatilityEnabled(data.volatility_alert);
-                  if (data.threshold) {
-                    setThreshold(data.threshold.toString());
-                    setThresholdType(data.threshold_type);
-                  }
+      navigator.serviceWorker.register('/sw.js').then(registration => {
+        registration.pushManager.getSubscription().then(async (sub) => {
+          if (sub) {
+            setIsSubscribed(true);
+            try {
+              const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/status?endpoint=${encodeURIComponent(sub.endpoint)}`);
+              if (res.ok) {
+                const data = await res.json();
+                setThresholdEnabled(data.threshold_enabled);
+                setVolatilityEnabled(data.volatility_alert);
+                if (data.threshold) {
+                  setThreshold(data.threshold.toString());
+                  setThresholdType(data.threshold_type);
                 }
-              } catch (e) {
-                console.error("Failed to sync alert status");
               }
+            } catch (e) {
+              console.error("Failed to sync alert status");
             }
-          });
+          }
         });
+      });
     }
   }, []);
 
-  const subscribeToPush = async () => {
+  const subscribeToPush = async (): Promise<PushSubscription | null> => {
     setLoading(true);
     try {
       const registration = await navigator.serviceWorker.ready;
-      // const response = await fetch('/api/vapid-key'); // REMOVED: using env var directly
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-      if (!vapidPublicKey) {
-        console.error("No VAPID public key found");
-        alert("Push notifications not configured (Missing VAPID Key)");
-        return;
-      }
+      if (!vapidPublicKey) return null;
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
       });
-
       setIsSubscribed(true);
       return subscription;
     } catch (error) {
       console.error("Failed to subscribe", error);
-      alert("Failed to enable push notifications");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -104,17 +88,15 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
 
   const savePreferences = async () => {
     let subscription = null;
-    if (!isSubscribed && (thresholdEnabled || volatilityEnabled)) {
+    const registration = await navigator.serviceWorker.ready;
+    subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription && (thresholdEnabled || volatilityEnabled)) {
       subscription = await subscribeToPush();
-      if (!subscription) return; // specific error handling handled in subscribeToPush
-    } else if (isSubscribed) {
-      const registration = await navigator.serviceWorker.ready;
-      subscription = await registration.pushManager.getSubscription();
     }
 
     if (!subscription) return;
 
-    // Send to backend
     try {
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/subscribe`, {
         method: 'POST',
@@ -128,7 +110,7 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
         })
       });
     } catch (e) {
-      console.error("Failed to save preferences to backend", e);
+      console.error("Failed to save preferences", e);
     }
   };
 
@@ -136,23 +118,12 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     setTestLoading(true);
     setTestResult(null);
     try {
-      // Ensure service worker is registered and we have a push subscription
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
-
       if (!subscription) {
-        // Subscribe first
-        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-          setTestResult({ ok: false, message: "VAPID public key not configured" });
-          return;
-        }
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-        setIsSubscribed(true);
+        subscription = await subscribeToPush();
       }
+      if (!subscription) throw new Error("Could not get subscription");
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/test`, {
         method: "POST",
@@ -166,97 +137,110 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       if (res.ok) {
         setTestResult({ ok: true, message: "Test notification sent!" });
       } else {
-        const data = await res.json().catch(() => ({}));
-        setTestResult({ ok: false, message: data.detail || "Failed to send" });
+        setTestResult({ ok: false, message: "Failed to send" });
       }
     } catch (error) {
-      console.error("Test notification error:", error);
-      setTestResult({ ok: false, message: String(error) });
+      setTestResult({ ok: false, message: "Error" });
     } finally {
       setTestLoading(false);
     }
   };
 
-  // Save to localStorage AND Backend on change
   useEffect(() => {
     localStorage.setItem("alertSettings", JSON.stringify({
-      threshold,
-      thresholdType,
-      thresholdEnabled,
-      volatilityEnabled,
+      threshold, thresholdType, thresholdEnabled, volatilityEnabled,
     }));
-
-    // Debounce backend save
     const timeout = setTimeout(() => {
-      if (thresholdEnabled || volatilityEnabled) {
-        savePreferences();
-      }
+      if (thresholdEnabled || volatilityEnabled) savePreferences();
     }, 1000);
     return () => clearTimeout(timeout);
   }, [threshold, thresholdType, thresholdEnabled, volatilityEnabled, isSubscribed]);
 
   return (
-    <section className="px-4 py-4 border-t border-dark-border">
-      <h2 className="text-sm text-gray-400 uppercase tracking-wide mb-4">Alerts</h2>
+    <section className="px-6 py-6 border-y border-white/5 bg-white/[0.02]">
+      <div className="flex items-center gap-2 mb-6">
+        <Bell className="w-5 h-5 text-accent-primary" />
+        <h2 className="font-semibold text-white">Smart Alerts</h2>
+      </div>
 
-      {/* Threshold Alert */}
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => setThresholdEnabled(!thresholdEnabled)}
-          className={`p-2 rounded-lg transition-colors ${thresholdEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
-            }`}
-        >
-          {thresholdEnabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
-        </button>
+      <div className="space-y-4">
+        {/* Threshold Row */}
+        <div className={`p-4 rounded-2xl border transition-all duration-300 ${thresholdEnabled ? 'bg-accent-primary/5 border-accent-primary/20' : 'bg-white/5 border-white/10'}`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-gray-300">Rate Threshold</span>
+            <button
+              onClick={() => setThresholdEnabled(!thresholdEnabled)}
+              className={`relative w-11 h-6 transition-colors rounded-full focus:outline-none ${thresholdEnabled ? 'bg-accent-primary' : 'bg-gray-700'}`}
+            >
+              <div className={`absolute top-1 left-1 w-4 h-4 transition-transform bg-white rounded-full ${thresholdEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
 
-        <div className="flex-1 flex items-center gap-2">
-          <span className="text-sm text-gray-400">Notify when</span>
-          <select
-            value={thresholdType}
-            onChange={(e) => setThresholdType(e.target.value as "above" | "below")}
-            className="bg-dark-card text-white text-sm px-2 py-1 rounded border border-dark-border"
-          >
-            <option value="above">≥</option>
-            <option value="below">≤</option>
-          </select>
-          <input
-            type="text"
-            inputMode="decimal"
-            pattern="[0-9]*\.?[0-9]*"
-            placeholder={currentRate?.toFixed(4) || "3.4500"}
-            value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
-            className="w-24 bg-dark-card text-white text-sm px-3 py-1 rounded border border-dark-border focus:border-accent-green focus:outline-none"
-          />
+          <div className={`flex items-center gap-2 transition-opacity duration-300 ${thresholdEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+            <span className="text-xs text-gray-500 whitespace-nowrap">Notify when rate is</span>
+            <select
+              value={thresholdType}
+              onChange={(e) => setThresholdType(e.target.value as "above" | "below")}
+              className="bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+            >
+              <option value="above">Above or Equal</option>
+              <option value="below">Below or Equal</option>
+            </select>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              placeholder={currentRate?.toFixed(4) || "3.4500"}
+              className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-lg px-3 py-1 text-xs text-white focus:outline-none focus:border-accent-primary font-mono text-center"
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Volatility Alert */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => setVolatilityEnabled(!volatilityEnabled)}
-          className={`p-2 rounded-lg transition-colors ${volatilityEnabled ? "bg-accent-green/20 text-accent-green" : "bg-dark-card text-gray-500"
-            }`}
-        >
-          <Activity className="w-5 h-5" />
-        </button>
-        <span className="text-sm text-gray-400">Volatility alerts (sudden changes)</span>
-      </div>
+        {/* Volatility Row */}
+        <div className={`p-4 rounded-2xl border transition-all duration-300 ${volatilityEnabled ? 'bg-amber-500/5 border-amber-500/20' : 'bg-white/5 border-white/10'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${volatilityEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-white/5 text-gray-500'}`}>
+                <Activity className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-300">Volatility Detection</div>
+                <div className="text-[10px] text-gray-500">Alert me of sudden market jumps</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setVolatilityEnabled(!volatilityEnabled)}
+              className={`relative w-11 h-6 transition-colors rounded-full focus:outline-none ${volatilityEnabled ? 'bg-amber-500' : 'bg-gray-700'}`}
+            >
+              <div className={`absolute top-1 left-1 w-4 h-4 transition-transform bg-white rounded-full ${volatilityEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
 
-      {/* Test Notification */}
-      <div className="mt-4">
-        <button
-          onClick={sendTestNotification}
-          disabled={testLoading}
-          className="w-full text-sm py-2 px-4 rounded-lg border border-dark-border bg-dark-card text-gray-400 hover:text-white hover:border-accent-green transition-colors disabled:opacity-50"
-        >
-          {testLoading ? "Sending..." : "Send Test Notification"}
-        </button>
-        {testResult && (
-          <p className={`text-xs mt-1 text-center ${testResult.ok ? "text-accent-green" : "text-accent-red"}`}>
-            {testResult.message}
-          </p>
-        )}
+        {/* Test Block */}
+        <div className="pt-2">
+          <button
+            onClick={sendTestNotification}
+            disabled={testLoading}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-white/10 bg-white/5 text-sm text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50"
+          >
+            {testLoading ? (
+              <div className="w-4 h-4 border-2 border-accent-primary border-t-transparent animate-spin rounded-full" />
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Test Notifications</span>
+              </>
+            )}
+          </button>
+          {testResult && (
+            <div className={`flex items-center justify-center gap-2 mt-3 text-xs ${testResult.ok ? "text-accent-primary" : "text-red-400"}`}>
+              {testResult.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              <span>{testResult.message}</span>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

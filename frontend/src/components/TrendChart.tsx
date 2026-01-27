@@ -8,15 +8,17 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  CartesianGrid,
 } from "recharts";
 import { useTrends } from "@/hooks/useTrends";
+import { LineChart as ChartIcon } from "lucide-react";
 
 const COLORS = [
-  "#22c55e", // green
-  "#3b82f6", // blue
-  "#f59e0b", // amber
-  "#ec4899", // pink
-  "#8b5cf6", // purple
+  "#10b981", // Emerald
+  "#3b82f6", // Blue
+  "#f59e0b", // Amber
+  "#ec4899", // Pink
+  "#8b5cf6", // Purple
 ];
 
 interface ChartDataPoint {
@@ -44,7 +46,15 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
     return Object.keys(trends.data);
   }, [trends]);
 
-  // Initialize selectedSources with all sources when data loads
+  // Create a stable mapping of source names to colors
+  const sourceColors = useMemo(() => {
+    const mapping: Record<string, string> = {};
+    sources.forEach((source, idx) => {
+      mapping[source] = COLORS[idx % COLORS.length];
+    });
+    return mapping;
+  }, [sources]);
+
   useEffect(() => {
     if (sources.length > 0 && selectedSources.size === 0) {
       setSelectedSources(new Set(sources));
@@ -53,23 +63,18 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
 
   const chartData = useMemo(() => {
     if (!trends?.data) return [];
-
     const timeMap = new Map<string, ChartDataPoint>();
-
     for (const [source, points] of Object.entries(trends.data)) {
       for (const point of points) {
-        // Round to nearest minute to align data points from the same scraping run
         const date = new Date(point.timestamp);
         date.setSeconds(0, 0);
         const timeKey = date.toISOString();
-
         if (!timeMap.has(timeKey)) {
           timeMap.set(timeKey, { timestamp: timeKey });
         }
         timeMap.get(timeKey)![source] = point.rate;
       }
     }
-
     return Array.from(timeMap.values()).sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
@@ -87,103 +92,108 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
 
   if (loading) {
     return (
-      <section className="px-4 py-4 border-t border-dark-border">
-        <div className="h-48 flex items-center justify-center text-gray-500">
-          Loading chart...
-        </div>
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section className="px-4 py-4 border-t border-dark-border">
-        <div className="h-48 flex items-center justify-center text-red-400">
-          Failed to load trends
+      <section className="px-6 py-8">
+        <div className="h-64 flex items-center justify-center text-gray-500 glass-card">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-accent-primary border-t-transparent animate-spin rounded-full" />
+            <span className="text-sm font-medium">Analyzing trends...</span>
+          </div>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="px-4 py-4 border-t border-dark-border">
-      <h2 className="text-sm text-gray-400 uppercase tracking-wide mb-4">30-Day Trend</h2>
+    <section className="px-6 py-8">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-2">
+          <ChartIcon className="w-5 h-5 text-accent-primary opacity-70" />
+          <h2 className="text-lg font-semibold text-white">Price History</h2>
+        </div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold bg-white/5 px-2 py-1 rounded-md">
+          Last 30 Days
+        </div>
+      </div>
 
       {/* Source toggles */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {sources.map((source, idx) => (
-          <button
-            key={source}
-            onClick={() => toggleSource(source)}
-            className={`px-3 py-1 text-xs rounded-full transition-colors ${selectedSources.has(source)
-              ? "text-white"
-              : "bg-dark-card text-gray-500"
-              }`}
-            style={{
-              backgroundColor: selectedSources.has(source)
-                ? COLORS[idx % COLORS.length] + "33"
-                : undefined,
-              borderColor: COLORS[idx % COLORS.length],
-              borderWidth: 1,
-              borderStyle: "solid",
-            }}
-          >
-            {source}
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-2 mb-8">
+        {sources.map((source) => {
+          const isSelected = selectedSources.has(source);
+          const color = sourceColors[source];
+          return (
+            <button
+              key={source}
+              onClick={() => toggleSource(source)}
+              className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all duration-300 border ${isSelected
+                  ? 'text-white border-transparent'
+                  : 'bg-white/5 border-white/10 text-gray-500'
+                }`}
+              style={{
+                backgroundColor: isSelected ? color : 'transparent',
+                boxShadow: isSelected ? `0 4px 12px ${color}33` : 'none',
+              }}
+            >
+              {source}
+            </button>
+          );
+        })}
       </div>
 
       {/* Chart */}
-      <div className="h-48 w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+      <div className="h-64 w-full bg-white/[0.02] border border-white/5 rounded-3xl p-4 backdrop-blur-sm">
+        <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
             <XAxis
               dataKey="timestamp"
               tickFormatter={(t) => {
                 const date = new Date(t);
-                const isToday = new Date().toDateString() === date.toDateString();
-                if (isToday) {
-                  return date.toLocaleTimeString("en-SG", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: false,
-                    timeZone: "Asia/Singapore"
-                  });
-                }
                 return date.toLocaleDateString("en-SG", { month: "short", day: "numeric", timeZone: "Asia/Singapore" });
               }}
-              stroke="#525252"
-              tick={{ fontSize: 10 }}
+              stroke="rgba(255,255,255,0.2)"
+              tick={{ fontSize: 9, fontWeight: 500 }}
+              axisLine={false}
+              tickLine={false}
+              dy={10}
             />
             <YAxis
               domain={["auto", "auto"]}
-              stroke="#525252"
-              tick={{ fontSize: 10 }}
-              width={50}
+              stroke="rgba(255,255,255,0.2)"
+              tick={{ fontSize: 9, fontFamily: 'monospace' }}
+              axisLine={false}
+              tickLine={false}
+              width={45}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#141414",
-                border: "1px solid #262626",
-                borderRadius: 8,
+                backgroundColor: "rgba(10, 10, 10, 0.9)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "16px",
+                backdropFilter: "blur(12px)",
+                padding: "12px",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
               }}
-              labelFormatter={(t) => new Date(t).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
+              itemStyle={{ fontSize: '11px', fontWeight: 'bold' }}
+              labelStyle={{ color: '#888', marginBottom: '8px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+              labelFormatter={(t) => new Date(t).toLocaleString('en-SG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Singapore' })}
               formatter={(value, name) => [
-                typeof value === 'number' ? value.toFixed(4) : value,
-                name
+                <span key={name as string} className="text-white">{typeof value === 'number' ? value.toFixed(4) : value}</span>,
+                <span key={`${name}-label`} className="text-gray-400 capitalize">{name as string}</span>
               ]}
             />
             {sources
               .filter((s) => selectedSources.has(s))
-              .map((source, idx) => (
+              .map((source) => (
                 <Line
                   key={source}
                   type="monotone"
                   dataKey={source}
-                  stroke={COLORS[idx % COLORS.length]}
-                  strokeWidth={2}
+                  stroke={sourceColors[source]}
+                  strokeWidth={3}
                   dot={false}
+                  activeDot={{ r: 4, strokeWidth: 0, fill: sourceColors[source] }}
                   connectNulls
+                  animationDuration={1500}
                 />
               ))}
           </LineChart>

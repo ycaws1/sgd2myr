@@ -11,37 +11,37 @@ export function StandaloneInputFix() {
   useEffect(() => {
     // Only apply in standalone (Add to Home Screen) mode
     const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (navigator as unknown as { standalone?: boolean }).standalone === true;
+      (window.navigator as any).standalone ||
+      window.matchMedia("(display-mode: standalone)").matches;
 
     if (!isStandalone) return;
 
-    const handleFocus = (e: Event) => {
+    console.log("iOS Standalone mode detected: Applying input fix");
+
+    const handleTouchStart = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
 
-      // Check if it's an input-like element
-      const isInput =
-        target.tagName === 'INPUT' ||
-        target.tagName === 'SELECT' ||
-        target.tagName === 'TEXTAREA';
+      // Look for input, select, textarea or their parent wrappers
+      const interactiveEl = target.closest('input, select, textarea, button, [role="button"]') as HTMLElement;
 
-      if (isInput) {
-        // Only focus if not already focused to avoid keyboard flickering
-        if (document.activeElement !== target) {
-          (target as HTMLElement).focus();
+      if (interactiveEl) {
+        // If it's an input/textarea, focus it
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(interactiveEl.tagName)) {
+          if (document.activeElement !== interactiveEl) {
+            // Delay slightly to allow native behavior but ensure focus
+            setTimeout(() => {
+              interactiveEl.focus();
+            }, 10);
+          }
         }
       }
     };
 
-    // Use touchstart as it's more reliable for focus in iOS Standalone
-    // but we use a small check to avoid interfering with natural behavior
-    document.addEventListener("touchstart", handleFocus, { passive: true });
-    // Keep click for fallback
-    document.addEventListener("click", handleFocus, { passive: true });
+    // Use passive: false to ensure we can capture but we're not blocking
+    document.addEventListener("touchstart", handleTouchStart as any, { passive: true });
 
     return () => {
-      document.removeEventListener("touchstart", handleFocus);
-      document.removeEventListener("click", handleFocus);
+      document.removeEventListener("touchstart", handleTouchStart as any);
     };
   }, []);
 

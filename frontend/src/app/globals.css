@@ -1,23 +1,35 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Outfit';
+  src: url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+}
+
 :root {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --dark-bg: #0a0a0a;
-  --dark-card: #141414;
-  --dark-border: #262626;
-  --accent-green: #22c55e;
-  --accent-red: #ef4444;
+  --background: #050505;
+  --foreground: #ffffff;
+  --card-bg: rgba(20, 20, 25, 0.7);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --accent-primary: #10b981;
+  --accent-secondary: #f59e0b;
+  --accent-glow: rgba(16, 185, 129, 0.15);
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.1);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-dark-bg: var(--dark-bg);
-  --color-dark-card: var(--dark-card);
-  --color-dark-border: var(--dark-border);
-  --color-accent-green: var(--accent-green);
-  --color-accent-red: var(--accent-red);
+  --color-card-bg: var(--card-bg);
+  --color-card-border: var(--card-border);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-secondary: var(--accent-secondary);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 html,
@@ -25,21 +37,39 @@ body {
   height: 100%;
   margin: 0;
   padding: 0;
-  -webkit-user-select: auto !important;
-  user-select: auto !important;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
+  /* Fix for iOS momentum scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   /* Support for iOS safe areas */
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+}
+
+/* Glassmorphism Utility */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1.5rem;
+}
+
+.glass-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  border-radius: 1.25rem;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* Hide scrollbar but allow scrolling */
@@ -52,47 +82,51 @@ body {
   scrollbar-width: none;
 }
 
+/* PWA Interaction Fixes */
+input, 
+select, 
+textarea, 
+button {
+  font-family: inherit;
+  /* Ensure these are always clickable on iOS Standalone */
+  cursor: pointer;
+  pointer-events: auto !important;
+  -webkit-user-select: auto !important;
+  user-select: auto !important;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="tel"],
+input[inputmode="decimal"],
+textarea {
+  cursor: text;
+  font-size: 16px !important; /* Prevents iOS auto-zoom */
+}
+
 /* Fix: iOS PWA standalone mode makes inputs unresponsive */
 @media all and (display-mode: standalone) {
-
-  input,
-  select,
-  textarea,
-  button {
-    cursor: pointer;
+  body {
+    user-select: none; /* Prevent accidental text selection of UI */
     -webkit-tap-highlight-color: transparent;
   }
-
-  input[type="text"],
-  input[type="number"],
-  input[type="tel"],
-  input[type="url"],
-  input[type="email"],
-  textarea {
-    cursor: text;
-    -webkit-user-select: text !important;
+  
+  /* But allow selection in inputs */
+  input, textarea {
     user-select: text !important;
-    font-size: 16px !important;
-    /* Prevents auto-zoom on focus */
-  }
-
-  /* Ensure select is clickable and shows native picker */
-  select {
-    -webkit-appearance: none;
-    appearance: none;
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
-    background-position: right 0.5rem center;
-    background-repeat: no-repeat;
-    background-size: 1.5em 1.5em;
-    padding-right: 2.5rem;
+    -webkit-user-select: text !important;
   }
 }
 
-/* Ensure inputs are always interactive regardless of display mode */
-input[type="text"],
-input[type="number"],
-input[inputmode="decimal"],
-textarea {
-  -webkit-user-select: text !important;
-  user-select: text !important;
+.animate-glow {
+  animation: glow 4s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 20px -10px var(--accent-primary);
+  }
+  to {
+    box-shadow: 0 0 30px 2px var(--accent-primary);
+  }
 }

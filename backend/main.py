@@ -326,8 +326,9 @@ async def cleanup_old_data():
 # # Scraper Functions
 async def scrape_google_n_revolut_rate():
     stealth = Stealth()
+    headless_mode = os.getenv("HEADLESS_SCRAPE", "True").lower() == "true"
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        browser = await p.chromium.launch(headless=headless_mode, args=["--disable-blink-features=AutomationControlled"])
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
@@ -375,8 +376,9 @@ async def scrape_google_n_revolut_rate():
 
 
 async def scrape_google_rate() -> Optional[float]:
+    headless_mode = os.getenv("HEADLESS_SCRAPE", "True").lower() == "true"
     async with Stealth().use_async(async_playwright()) as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=headless_mode)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
@@ -523,8 +525,9 @@ async def scrape_instarem_rate() -> Optional[float]:
 
 
 async def scrape_revolut_rate() -> Optional[float]:
+    headless_mode = os.getenv("HEADLESS_SCRAPE", "True").lower() == "true"
     async with Stealth().use_async(async_playwright()) as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=headless_mode)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
@@ -629,9 +632,6 @@ async def scrape_all_rates():
     await check_threshold_alerts(rates_collected)
 
     logger.info(f"Scraping complete. Collected {len(rates_collected)} rates.")
-
-
-
 
 
 # FastAPI App Setup
@@ -777,6 +777,41 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
         raise HTTPException(status_code=500, detail="Failed to retrieve trends")
 
 
+@app.get("/rates/history", response_model=list[SourceHistory])
+async def get_rate_history():
+    """Get the 5 most recent rates for each source."""
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.fetch("""
+                SELECT source_name, rate, timestamp
+                FROM (
+                    SELECT source_name, rate, timestamp,
+                           ROW_NUMBER() OVER(PARTITION BY source_name ORDER BY timestamp DESC) as rn
+                    FROM rates
+                ) t
+                WHERE rn <= 5
+                ORDER BY source_name, timestamp DESC
+            """)
+
+            sources = {}
+            for row in result:
+                source_name = row['source_name']
+                if source_name not in sources:
+                    sources[source_name] = []
+                sources[source_name].append(RateHistoryItem(
+                    rate=row['rate'],
+                    timestamp=to_utc(row['timestamp'])
+                ))
+
+            return [
+                SourceHistory(source_name=name, recent_rates=rates)
+                for name, rates in sources.items()
+            ]
+    except Exception as e:
+        logger.error(f"Failed to get rate history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve history")
+
+
 @app.get("/alerts/status")
 async def get_alert_status(endpoint: str):
     """Get current subscription status."""
@@ -802,18 +837,15 @@ async def get_alert_status(endpoint: str):
             "threshold_enabled": False
         }
     except Exception as e:
-        logger.error(f"Failed to get subscription status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve status")
+        logger.error(f"Failed to get alert status: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/alerts/subscribe")
 async def subscribe_alerts(subscription: AlertSubscription):
     """Subscribe to push notifications."""
     try:
-        keys_json = json.dumps(subscription.keys)
-
         async with db_pool.acquire() as conn:
-            # Upsert subscription
             await conn.execute("""
                 INSERT INTO subscriptions (endpoint, keys_json, threshold, threshold_type, volatility_alert)
                 VALUES ($1, $2, $3, $4, $5)
@@ -823,179 +855,21 @@ async def subscribe_alerts(subscription: AlertSubscription):
                     threshold_type = EXCLUDED.threshold_type,
                     volatility_alert = EXCLUDED.volatility_alert
             """, 
-                subscription.endpoint,
-                keys_json,
-                subscription.threshold,
-                subscription.threshold_type,
-                subscription.volatility_alert
+            subscription.endpoint, 
+            json.dumps(subscription.keys),
+            subscription.threshold,
+            subscription.threshold_type,
+            subscription.volatility_alert
             )
-
-        return {"status": "subscribed", "endpoint": subscription.endpoint}
+        return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to subscribe: {e}")
         raise HTTPException(status_code=500, detail="Failed to subscribe")
-
-
-@app.delete("/alerts/unsubscribe")
-async def unsubscribe_alerts(endpoint: str):
-    """Unsubscribe from push notifications."""
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM subscriptions WHERE endpoint = $1", endpoint)
-        return {"status": "unsubscribed", "endpoint": endpoint}
-    except Exception as e:
-        logger.error(f"Failed to unsubscribe: {e}")
-        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
-
-
-@app.get("/rates/best")
-async def get_best_rate():
-    """Get the current best rate among all sources."""
-    try:
-        async with db_pool.acquire() as conn:
-            result = await conn.fetchrow("""
-                WITH latest AS (
-                    SELECT source_name, MAX(timestamp) as max_ts
-                    FROM rates
-                    GROUP BY source_name
-                )
-                SELECT r.source_name, r.rate, r.timestamp
-                FROM rates r
-                INNER JOIN latest l ON r.source_name = l.source_name AND r.timestamp = l.max_ts
-                ORDER BY r.rate DESC
-                LIMIT 1
-            """)
-
-        if result:
-            return RateResponse(source_name=result['source_name'], rate=result['rate'], timestamp=to_utc(result['timestamp']))
-        else:
-            raise HTTPException(status_code=404, detail="No rates available")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get best rate: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve best rate")
-
-
-@app.post("/convert")
-async def convert_currency(request: ConversionRequest):
-    """Convert SGD to MYR using the best current rate or a specific source."""
-    try:
-        if request.source:
-            # Get latest rate for specific source
-            async with db_pool.acquire() as conn:
-                result = await conn.fetchrow("""
-                    SELECT source_name, rate, timestamp
-                    FROM rates
-                    WHERE source_name = $1
-                    ORDER BY timestamp DESC
-                    LIMIT 1
-                """, request.source)
-            
-            if not result:
-                raise HTTPException(status_code=404, detail=f"No rate found for source: {request.source}")
-            
-            best = RateResponse(source_name=result['source_name'], rate=result['rate'], timestamp=to_utc(result['timestamp']))
-        else:
-            best = await get_best_rate()
-
-        converted = request.amount * best.rate
-        return {
-            "sgd_amount": request.amount,
-            "myr_amount": round(converted, 2),
-            "rate": best.rate,
-            "source": best.source_name,
-            "timestamp": best.timestamp
-        }
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Failed to convert: {e}")
-        raise HTTPException(status_code=500, detail="Failed to convert currency")
-
-
-@app.get("/rates/history", response_model=list[SourceHistory])
-async def get_rates_history():
-    """Get the last 5 records for each source."""
-    try:
-        async with db_pool.acquire() as conn:
-            result = await conn.fetch("""
-                WITH RankedRates AS (
-                    SELECT 
-                        source_name, 
-                        rate, 
-                        date_trunc('minute', timestamp) as timestamp,
-                        ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY timestamp DESC) as rn
-                    FROM rates
-                )
-                SELECT source_name, rate, timestamp
-                FROM RankedRates
-                WHERE rn <= 5
-                ORDER BY source_name ASC, timestamp DESC
-            """)
-
-        history_map = {}
-        for row in result:
-            source = row['source_name']
-            rate = row['rate']
-            timestamp = row['timestamp']
-            if source not in history_map:
-                history_map[source] = []
-            history_map[source].append(RateHistoryItem(rate=rate, timestamp=to_utc(timestamp)))
-
-        return [
-            SourceHistory(source_name=source, recent_rates=rates)
-            for source, rates in history_map.items()
-        ]
-    except Exception as e:
-        logger.error(f"Failed to get history: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve history")
-
-
-@app.post("/rates/scrape")
-async def trigger_scrape(background_tasks: BackgroundTasks):
-    """Manually trigger a rate scrape."""
-    background_tasks.add_task(scrape_all_rates)
-    return {"status": "scraping", "message": "Rate scraping started in background"}
-
-
-class TestPushRequest(BaseModel):
-    endpoint: str
-    keys: dict
-
-
-@app.post("/alerts/test")
-async def test_push_notification(request: TestPushRequest):
-    """Send a test push notification to verify push notifications are working."""
-    try:
-        if not VAPID_PRIVATE_KEY:
-            raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY not configured on server")
-        
-        subscription_info = {
-            "endpoint": request.endpoint,
-            "keys": request.keys
-        }
-        
-        message = json.dumps({
-            "title": "🔔 Test Notification",
-            "body": f"Push notifications are working! Sent at {datetime.now(GMT_PLUS_8).strftime('%Y-%m-%d %H:%M:%S')} (GMT+8)",
-            "icon": "/icons/icon-192x192.png"
-        })
-        
-        await send_push_notification(subscription_info, message)
-        return {"status": "sent", "message": "Test notification sent successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to send test notification: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send test notification: {str(e)}")
-
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     try:
-        # Check database connection
         async with db_pool.acquire() as conn:
             await conn.fetchval("SELECT 1")
         return {

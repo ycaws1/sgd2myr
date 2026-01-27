@@ -1,6 +1,7 @@
 "use client";
 
 import { SourceHistory } from "@/types";
+import { History } from "lucide-react";
 
 interface RateHistoryTableProps {
     history: SourceHistory[];
@@ -9,10 +10,7 @@ interface RateHistoryTableProps {
 export function RateHistoryTable({ history }: RateHistoryTableProps) {
     if (!history || history.length === 0) return null;
 
-    // Extract all source names for columns
     const sourceNames = history.map(h => h.source_name).sort();
-
-    // 1. Get all unique timestamps from all sources
     const allTimestamps = new Set<string>();
     history.forEach(h => {
         h.recent_rates.forEach(r => {
@@ -20,12 +18,10 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
         });
     });
 
-    // 2. Sort timestamps descending and take the top 5
     const sortedTimestamps = Array.from(allTimestamps)
         .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
         .slice(0, 5);
 
-    // 3. Generate rows based on these timestamps
     const rows = sortedTimestamps.map((ts, index) => {
         const timestamp = new Date(ts);
         return {
@@ -33,7 +29,6 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
             timestamp,
             rates: sourceNames.map(source => {
                 const sourceData = history.find(h => h.source_name === source);
-                // Find the rate for this source at this EXACT timestamp
                 const rateData = sourceData?.recent_rates.find(r =>
                     new Date(r.timestamp).toISOString() === ts
                 );
@@ -43,42 +38,50 @@ export function RateHistoryTable({ history }: RateHistoryTableProps) {
     });
 
     return (
-        <section className="px-4 py-4 border-t border-dark-border">
-            <h2 className="text-sm text-gray-400 uppercase tracking-wide mb-4">Last 5 Records</h2>
+        <section className="px-6 py-8">
+            <div className="flex items-center gap-2 mb-6">
+                <History className="w-5 h-5 text-accent-primary opacity-70" />
+                <h2 className="text-lg font-semibold text-white">Execution Logs</h2>
+            </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-gray-400 uppercase bg-dark-card border-b border-dark-border">
-                        <tr>
-                            <th className="px-2 py-2 md:px-4 md:py-3 sticky left-0 bg-dark-card z-10">Time</th>
-                            {sourceNames.map(source => (
-                                <th key={source} className="px-2 py-2 md:px-4 md:py-3 text-right">{source}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row) => (
-                            <tr
-                                key={row.index}
-                                className="border-b border-dark-border last:border-0 hover:bg-dark-card/50 transition-colors"
-                            >
-                                <td className="px-2 py-2 md:px-4 md:py-3 text-gray-500 whitespace-nowrap text-xs md:text-sm sticky left-0 bg-dark-bg/95 md:bg-transparent">
-                                    {row.timestamp ? row.timestamp.toLocaleTimeString('en-SG', {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                        timeZone: 'Asia/Singapore'
-                                    }) : "-"}
-                                </td>
-                                {row.rates.map((rate, i) => (
-                                    <td key={i} className="px-2 py-2 md:px-4 md:py-3 text-right font-mono text-white text-xs md:text-sm">
-                                        {rate ? rate.toFixed(4) : "-"}
-                                    </td>
+            <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.02]">
+                <div className="overflow-x-auto overflow-y-hidden">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-white/[0.03]">
+                                <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 whitespace-nowrap">Timestamp</th>
+                                {sourceNames.map(source => (
+                                    <th key={source} className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right border-b border-white/5">{source}</th>
                                 ))}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {rows.map((row) => (
+                                <tr key={row.index} className="hover:bg-white/[0.02] transition-colors">
+                                    <td className="px-4 py-3 text-[11px] font-medium text-gray-400 font-mono">
+                                        {row.timestamp ? row.timestamp.toLocaleTimeString('en-SG', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                            hour12: false,
+                                            timeZone: 'Asia/Singapore'
+                                        }) : "-"}
+                                    </td>
+                                    {row.rates.map((rate, i) => (
+                                        <td key={i} className="px-4 py-3 text-right">
+                                            <span className={`text-[11px] font-mono font-medium ${rate ? 'text-white' : 'text-gray-700'}`}>
+                                                {rate ? rate.toFixed(4) : "—"}
+                                            </span>
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div className="mt-3 text-[10px] text-gray-600 px-1 italic">
+                * Showing last 5 synchronization events across all tracked sources.
             </div>
         </section>
     );
