@@ -375,28 +375,6 @@ async def scrape_google_n_revolut_rate():
         return [page_1_rate, page_2_rate]
 
 
-async def scrape_google_rate() -> Optional[float]:
-    headless_mode = os.getenv("HEADLESS_SCRAPE", "True").lower() == "true"
-    async with Stealth().use_async(async_playwright()) as p:
-        browser = await p.chromium.launch(headless=headless_mode)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={'width': 1920, 'height': 1080}
-        )
-        page = await context.new_page()
-        url = "https://www.google.com/finance/quote/SGD-MYR"
-        print(f"Navigating to {url}...")
-        try:
-            await page.goto(url, wait_until="networkidle")
-            await page.wait_for_selector('div[data-last-price]', timeout=10000)
-            rate = await page.locator('div[data-last-price]').get_attribute('data-last-price')
-            return float(rate)
-        except Exception as e:
-            logger.error(f"Failed to scrape Google rate: {e}")
-            return None
-        finally:
-            await browser.close()
-
 
 async def scrape_xe_rate() -> Optional[float]:
     """Scrape SGD to MYR rate from XE.com."""
@@ -522,32 +500,6 @@ async def scrape_instarem_rate() -> Optional[float]:
     except Exception as e:
         logger.error(f"Failed to scrape Instarem rate: {e}")
     return None
-
-
-async def scrape_revolut_rate() -> Optional[float]:
-    headless_mode = os.getenv("HEADLESS_SCRAPE", "True").lower() == "true"
-    async with Stealth().use_async(async_playwright()) as p:
-        browser = await p.chromium.launch(headless=headless_mode)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={'width': 1920, 'height': 1080}
-        )
-        page = await context.new_page()
-        url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
-        print(f"Navigating to {url}...")
-        try:
-            await page.goto(url, wait_until="networkidle")
-            await page.locator("h2", has_text=re.compile(r"1 SGD =")).wait_for(state="visible", timeout=10000)
-            text = await page.locator("h2", has_text=re.compile(r"1 SGD =")).text_content()
-            match = re.search(r"1 SGD = ([0-9.]+) MYR", text)
-            if match:
-                rate = match.group(1)
-                return float(rate)
-        except Exception as e:
-            logger.error(f"Failed to scrape Revolut rate: {e}")
-            return None
-        finally:
-            await browser.close()
 
 
 async def scrape_exchangerate_api() -> Optional[float]:
