@@ -351,7 +351,7 @@ async def scrape_google_n_revolut_rate():
         print(f"Navigating to {url}...")
         await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         try:
-            await page_2.goto(url, wait_until="networkidle")
+            await page_2.goto(url) #, wait_until="networkidle")
             await page_2.wait_for_timeout(10000)
             if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
                 await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
