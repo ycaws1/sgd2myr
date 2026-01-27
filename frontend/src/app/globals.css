@@ -40,28 +40,42 @@ body {
 @media all and (display-mode: standalone) {
   input,
   select,
-  textarea {
-    -webkit-user-select: text !important;
-    user-select: text !important;
-    touch-action: auto !important;
-    -webkit-touch-callout: default !important;
-    font-size: 16px !important;
-    cursor: text;
-    -webkit-appearance: none;
-    appearance: none;
+  textarea,
+  button {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
+  input[type="text"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="email"],
+  textarea {
+    cursor: text;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    font-size: 16px !important; /* Prevents auto-zoom on focus */
+  }
+
+  /* Ensure select is clickable and shows native picker */
   select {
-    cursor: pointer;
-    -webkit-appearance: menulist !important;
-    appearance: menulist !important;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
   }
 }
 
 /* Ensure inputs are always interactive regardless of display mode */
 input[type="text"],
 input[type="number"],
-input[inputmode="decimal"] {
+input[inputmode="decimal"],
+textarea {
   -webkit-user-select: text !important;
   user-select: text !important;
+  touch-action: manipulation;
 }
