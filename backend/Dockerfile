@@ -2,8 +2,12 @@ FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
 WORKDIR /app
 
-# Install VNC, noVNC, and window manager
-RUN apt-get update && apt-get install -y \
+# Set timezone env before installing tzdata
+ENV TZ=Asia/Singapore \
+    DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
     xvfb \
     x11vnc \
     novnc \

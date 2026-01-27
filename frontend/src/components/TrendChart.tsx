@@ -125,8 +125,8 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
               key={source}
               onClick={() => toggleSource(source)}
               className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all duration-300 border ${isSelected
-                  ? 'text-white border-transparent'
-                  : 'bg-white/5 border-white/10 text-gray-500'
+                ? 'text-white border-transparent'
+                : 'bg-white/5 border-white/10 text-gray-500'
                 }`}
               style={{
                 backgroundColor: isSelected ? color : 'transparent',
@@ -177,8 +177,8 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
               labelStyle={{ color: '#888', marginBottom: '8px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
               labelFormatter={(t) => new Date(t).toLocaleString('en-SG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Singapore' })}
               formatter={(value, name) => [
-                <span key={name as string} className="text-white">{typeof value === 'number' ? value.toFixed(4) : value}</span>,
-                <span key={`${name}-label`} className="text-gray-400 capitalize">{name as string}</span>
+                (typeof value === 'number' ? value.toFixed(4) : value),
+                name
               ]}
             />
             {sources
