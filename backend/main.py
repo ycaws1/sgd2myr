@@ -356,14 +356,13 @@ async def scrape_google_n_revolut_rate():
                 await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
             # await page_2.locator('button[role="tab"]', has_text="1d").click()
             await page_2.locator('foreignObject span', has_text="RM").wait_for(state="visible", timeout=5000)
-            await page_2.locator('foreignObject span', has_text="RM").scroll_into_view_if_needed()
             text = await page_2.locator('foreignObject span', has_text="RM").text_content()
             text = text.replace('\xa0', ' ')
             match = re.search(r'RM\s*([\d.]+)', text)
             if match:
                 page_2_rate = float(match.group(1))
         except Exception as e:
-            await page_2.screenshot(path="revolut_error.png", timeout=5000)
+            # await page_2.screenshot(path="revolut_error.png", timeout=5000)
             inner_html = await page_2.evaluate("document.documentElement.innerHTML")
             with open("revolut_error.html", "w", encoding="utf-8") as f:
                 f.write(inner_html)
