@@ -373,7 +373,6 @@ async def scrape_google_n_revolut_rate():
             with open("revolut_error.html", "w", encoding="utf-8") as f:
                 f.write(inner_html)
             logger.error(f"Failed to scrape Revolut rate: {e}")
-            page_2_rate = None
             await context.tracing.stop(path="trace.zip")
         
         await browser.close()
