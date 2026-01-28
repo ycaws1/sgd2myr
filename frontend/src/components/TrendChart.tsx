@@ -31,7 +31,7 @@ interface TrendChartProps {
 }
 
 export function TrendChart({ onRefresh }: TrendChartProps) {
-  const { trends, loading, error, refresh } = useTrends(30);
+  const { trends, loading, error, refresh } = useTrends(7);
 
   useEffect(() => {
     if (onRefresh && refresh) {
@@ -57,7 +57,8 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
 
   useEffect(() => {
     if (sources.length > 0 && selectedSources.size === 0) {
-      setSelectedSources(new Set(sources));
+      // Exclude Google from default selection
+      setSelectedSources(new Set(sources.filter(s => s !== "Google")));
     }
   }, [sources, selectedSources.size]);
 
@@ -111,7 +112,7 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
           <h2 className="text-lg font-semibold text-white">Price History</h2>
         </div>
         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold bg-white/5 px-2 py-1 rounded-md">
-          Last 30 Days
+          Last 7 Days
         </div>
       </div>
 
