@@ -699,14 +699,16 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 30):
         async with db_pool.acquire() as conn:
             if source:
                 result = await conn.fetch("""
-                    SELECT date_trunc('minute', timestamp) as timestamp, source_name, ROUND(rate::numeric, 3) as rate
+                    SELECT date_trunc('minute', timestamp) - 
+    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 3) as rate
                     FROM rates
                     WHERE timestamp > $1 AND source_name = $2
                     ORDER BY timestamp ASC
                 """, cutoff, source)
             else:
                 result = await conn.fetch("""
-                    SELECT date_trunc('minute', timestamp) as timestamp, source_name, ROUND(rate::numeric, 3) as rate
+                    SELECT date_trunc('minute', timestamp) - 
+    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 3) as rate
                     FROM rates
                     WHERE timestamp > $1
                     ORDER BY timestamp ASC
@@ -742,7 +744,8 @@ async def get_rate_history():
             result = await conn.fetch("""
                 SELECT source_name, rate, timestamp
                 FROM (
-                    SELECT source_name, rate, timestamp,
+                    SELECT source_name, rate, date_trunc('minute', timestamp) - 
+    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval as timestamp,
                            ROW_NUMBER() OVER(PARTITION BY source_name ORDER BY timestamp DESC) as rn
                     FROM rates
                 ) t
