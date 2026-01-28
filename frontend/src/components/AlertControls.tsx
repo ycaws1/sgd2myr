@@ -117,6 +117,13 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
   const sendTestNotification = async () => {
     setTestLoading(true);
     setTestResult(null);
+
+    if (Notification.permission !== "granted") {
+      setTestResult({ ok: false, message: "Notifications not granted" });
+      setTestLoading(false);
+      return;
+    }
+
     try {
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
@@ -137,10 +144,11 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       if (res.ok) {
         setTestResult({ ok: true, message: "Test notification sent!" });
       } else {
-        setTestResult({ ok: false, message: "Failed to send" });
+        const err = await res.json().catch(() => ({ detail: "Failed to send" }));
+        setTestResult({ ok: false, message: err.detail || "Failed to send" });
       }
-    } catch (error) {
-      setTestResult({ ok: false, message: "Error" });
+    } catch (error: any) {
+      setTestResult({ ok: false, message: error.message || "Error" });
     } finally {
       setTestLoading(false);
     }
@@ -151,7 +159,7 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       threshold, thresholdType, thresholdEnabled, volatilityEnabled,
     }));
     const timeout = setTimeout(() => {
-      if (thresholdEnabled || volatilityEnabled) savePreferences();
+      savePreferences();
     }, 1000);
     return () => clearTimeout(timeout);
   }, [threshold, thresholdType, thresholdEnabled, volatilityEnabled, isSubscribed]);

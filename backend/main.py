@@ -68,7 +68,7 @@ async def send_push_notification(subscription_info: dict, message: str):
     """Send a push notification to a specific subscription."""
     if not VAPID_PRIVATE_KEY:
         logger.error("Cannot send push: VAPID_PRIVATE_KEY not configured")
-        return
+        raise ValueError("VAPID_PRIVATE_KEY not configured")
 
     try:
         webpush(
@@ -83,8 +83,10 @@ async def send_push_notification(subscription_info: dict, message: str):
         # If 410 Gone, we should probably remove the subscription
         if ex.response and ex.response.status_code == 410:
              logger.info("Subscription expired/gone. TODO: Remove from DB")
+        raise ex
     except Exception as ex:
         logger.error(f"Failed to send push notification: {ex}")
+        raise ex
 
 
 async def check_threshold_alerts(rates: list):
@@ -804,9 +806,12 @@ async def get_alert_status(endpoint: str):
 @app.post("/alerts/subscribe")
 async def subscribe_alerts(subscription: AlertSubscription):
     """Subscribe to push notifications."""
+    logger.info(f"Received subscription request for endpoint: {subscription.endpoint[:20]}...")
+    logger.info(f"Payload: threshold={subscription.threshold}, type={subscription.threshold_type}, vol={subscription.volatility_alert}")
+    
     try:
         async with db_pool.acquire() as conn:
-            await conn.execute("""
+            res = await conn.execute("""
                 INSERT INTO subscriptions (endpoint, keys_json, threshold, threshold_type, volatility_alert)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (endpoint) DO UPDATE SET
@@ -821,6 +826,12 @@ async def subscribe_alerts(subscription: AlertSubscription):
             subscription.threshold_type,
             subscription.volatility_alert
             )
+            logger.info(f"Subscription DB Result: {res}")
+            
+            # Verify immediately
+            check = await conn.fetchval("SELECT count(*) FROM subscriptions WHERE endpoint = $1", subscription.endpoint)
+            logger.info(f"Verification: Found {check} records for this endpoint.")
+            
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to subscribe: {e}")
@@ -840,7 +851,13 @@ async def send_test_alert(request: PushTestRequest):
         "icon": "/icons/icon-192x192.png"
     })
     
-    await send_push_notification(subscription_info, message)
+    try:
+        await send_push_notification(subscription_info, message)
+    except Exception as e:
+        logger.error(f"Failed to send test alert: {e}")
+        # Return detail info for debugging
+        raise HTTPException(status_code=500, detail=str(e))
+        
     return {"status": "success"}
 
 @app.get("/health")
@@ -857,6 +874,38 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Unhealthy: {e}")
     
+@app.post("/debug/trigger-checks")
+async def trigger_checks():
+    """Manually trigger alert checks for testing."""
+    logger.info("Manually triggering alert checks")
+    try:
+        # Check volatility
+        await check_volatility_alerts()
+        
+        # Check thresholds - we need recent rates for this.
+        # We'll fetch the latest from DB to simulate "just scraped"
+        async with db_pool.acquire() as conn:
+             result = await conn.fetch("""
+                SELECT source_name, rate
+                FROM rates
+                WHERE timestamp > NOW() - INTERVAL '1 hour'
+                ORDER BY timestamp DESC
+             """)
+             # Dedup by source
+             seen = set()
+             rates = []
+             for row in result:
+                 if row['source_name'] not in seen:
+                     rates.append((row['source_name'], row['rate']))
+                     seen.add(row['source_name'])
+                     
+        await check_threshold_alerts(rates)
+        
+        return {"status": "triggered", "rates_checked": len(rates)}
+    except Exception as e:
+        logger.error(f"Manual trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/debug/{file_type}")
 async def get_debug_file(file_type: str):
     """
