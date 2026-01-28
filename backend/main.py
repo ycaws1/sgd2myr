@@ -348,8 +348,13 @@ async def scrape_google_n_revolut_rate():
         print(f"Navigating to {url}...")
         try:
             await page_1.goto(url) #, wait_until="networkidle")
-            await page_1.wait_for_selector('div[data-last-price]', timeout=5000)
-            rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
+            # await page_1.wait_for_selector('div[data-last-price]', timeout=5000)
+            # rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
+            title = await page_1.title()
+            match = re.match(r"^(\S+) (\d+\.\d+)", title)
+            if match:
+                pair = match.group(1)
+                rate = float(match.group(2))
             page_1_rate = float(rate)
         except Exception as e:
             logger.error(f"Failed to scrape Google rate: {e}")
