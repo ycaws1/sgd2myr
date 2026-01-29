@@ -5,7 +5,7 @@ import { TrendData } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export function useTrends(days = 30, pollInterval = 60000) {
+export function useTrends(days = 1, pollInterval = 60000) {
   const [trends, setTrends] = useState<TrendData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

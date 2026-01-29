@@ -31,7 +31,7 @@ interface TrendChartProps {
 }
 
 export function TrendChart({ onRefresh }: TrendChartProps) {
-  const [period, setPeriod] = useState(7);
+  const [period, setPeriod] = useState(1);
   const { trends, loading, error, refresh } = useTrends(period);
 
   useEffect(() => {
@@ -134,8 +134,8 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
                 key={opt.val}
                 onClick={() => setTimePeriod(opt.val)}
                 className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${period === opt.val
-                    ? 'bg-accent-primary text-white shadow-lg'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-accent-primary text-white shadow-lg'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
               >
                 {opt.label}
