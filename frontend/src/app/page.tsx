@@ -8,6 +8,7 @@ import { TrendChart } from "@/components/TrendChart";
 import { RateCards } from "@/components/RateCards";
 import { Converter } from "@/components/Converter";
 import { RateHistoryTable } from "@/components/RateHistoryTable";
+import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { Wallet, ShieldCheck } from "lucide-react";
 
 export default function Home() {
@@ -34,6 +35,9 @@ export default function Home() {
           <span className="text-[10px] font-bold text-gray-400">SECURE</span>
         </div>
       </nav>
+
+      {/* Notification Permission Prompt */}
+      <NotificationPrompt />
 
       <HeroRate
         bestRate={bestRate}
