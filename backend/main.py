@@ -346,9 +346,10 @@ async def scrape_google_n_revolut_rate():
         page_2 = await context.new_page()
 
         url = "https://www.google.com/finance/quote/SGD-MYR"
-        print(f"Navigating to {url}...")
+        logger.info(f"Navigating to {url}...")
         try:
             await page_1.goto(url) #, wait_until="networkidle")
+            await page_1.wait_for_timeout(1000)
             await page_1.wait_for_selector('div[data-last-price]', timeout=5000)
             rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
             title = await page_1.title()
@@ -369,7 +370,7 @@ async def scrape_google_n_revolut_rate():
             page_1_rate = None
         
         url = "https://www.revolut.com/currency-converter/convert-sgd-to-myr-exchange-rate/"
-        print(f"Navigating to {url}...")
+        logger.info(f"Navigating to {url}...")
         await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         try:
             await page_2.goto(url) #, wait_until="networkidle")
