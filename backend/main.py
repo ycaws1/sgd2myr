@@ -338,8 +338,8 @@ async def scrape_google_n_revolut_rate():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless_mode, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
         context = await browser.new_context(
-            # user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            # viewport={'width': 1920, 'height': 1080}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
             )
         await stealth.apply_stealth_async(context)
         page_1 = await context.new_page()
@@ -349,7 +349,6 @@ async def scrape_google_n_revolut_rate():
         print(f"Navigating to {url}...")
         try:
             await page_1.goto(url) #, wait_until="networkidle")
-            await page_1.wait_for_timeout(2000)
             await page_1.wait_for_selector('div[data-last-price]', timeout=5000)
             rate = await page_1.locator('div[data-last-price]').get_attribute('data-last-price')
             title = await page_1.title()
@@ -374,7 +373,6 @@ async def scrape_google_n_revolut_rate():
         await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         try:
             await page_2.goto(url) #, wait_until="networkidle")
-            await page_2.wait_for_timeout(2000)
             if await page_2.locator('span', has_text="Reject non-essential cookies").first.count() > 0:
                 await page_2.locator('span', has_text="Reject non-essential cookies").first.click()
             # await page_2.locator('button[role="tab"]', has_text="1d").click()
