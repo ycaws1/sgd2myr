@@ -34,3 +34,14 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## Debugging
+curl https://sgd2myr.onrender.com/alerts/subscriptions
+curl -X POST https://sgd2myr.onrender.com/alerts/clear
+curl -i "https://sgd2myr.onrender.com/debug/simulate-volatility?change=5.5"
+curl -i "https://sgd2myr.onrender.com/debug/simulate-rate?rate=5.5&force=true"
+
+## BACKUP
+postgresql://admin:tWiZG565i80Sy5vIZutCqZr4yXKacph8@dpg-d5s03fkoud1c738u1vng-a/sg2myr_db
+postgresql://postgres:M07dOjXJbiYI3s3a@db.bfgbeqmismsldhfoevyg.supabase.co:5432/postgres
