@@ -574,22 +574,22 @@ async def scrape_all_rates():
             logger.warning(f"No rate obtained from {source_name}")
 
     # Run combined Playwright scraper
-    try:
-        playwright_rates = await scrape_google_n_revolut_rate()
-        # First result is Google
-        if playwright_rates[0] is not None:
-            await save_rate("Google", playwright_rates[0], timestamp=now_utc)
-            rates_collected.append(("Google", playwright_rates[0]))
-        else:
-            logger.warning("No rate obtained from Google")
-        # Second result is Revolut
-        if playwright_rates[1] is not None:
-            await save_rate("Revolut", playwright_rates[1], timestamp=now_utc)
-            rates_collected.append(("Revolut", playwright_rates[1]))
-        else:
-            logger.warning("No rate obtained from Revolut")    
-    except Exception as e:
-        logger.error(f"Combined Playwright scraper raised exception: {e}")
+    # try:
+    #     playwright_rates = await scrape_google_n_revolut_rate()
+    #     # First result is Google
+    #     if playwright_rates[0] is not None:
+    #         await save_rate("Google", playwright_rates[0], timestamp=now_utc)
+    #         rates_collected.append(("Google", playwright_rates[0]))
+    #     else:
+    #         logger.warning("No rate obtained from Google")
+    #     # Second result is Revolut
+    #     if playwright_rates[1] is not None:
+    #         await save_rate("Revolut", playwright_rates[1], timestamp=now_utc)
+    #         rates_collected.append(("Revolut", playwright_rates[1]))
+    #     else:
+    #         logger.warning("No rate obtained from Revolut")    
+    # except Exception as e:
+    #     logger.error(f"Combined Playwright scraper raised exception: {e}")
 
     # If no rates collected, use fallback
     if not rates_collected:
