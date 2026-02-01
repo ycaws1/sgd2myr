@@ -852,6 +852,29 @@ async def subscribe_alerts(subscription: AlertSubscription):
         logger.error(f"Failed to subscribe: {e}")
         raise HTTPException(status_code=500, detail="Failed to subscribe")
 
+@app.get("/alerts/subscriptions")
+async def get_all_subscriptions():
+    """List all active subscriptions (Debug only)."""
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT endpoint, threshold, threshold_type, volatility_alert, created_at FROM subscriptions")
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Failed to list subscriptions: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/alerts/clear")
+async def clear_all_subscriptions():
+    """Clear all subscriptions from the database."""
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM subscriptions")
+        logger.info("All subscriptions cleared from database")
+        return {"status": "success", "message": "All subscriptions cleared"}
+    except Exception as e:
+        logger.error(f"Failed to clear subscriptions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear subscriptions")
+
 @app.post("/alerts/test")
 async def send_test_alert(request: PushTestRequest):
     """Send a test push notification."""
@@ -920,6 +943,13 @@ async def trigger_checks():
     except Exception as e:
         logger.error(f"Manual trigger failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/debug/simulate-rate")
+async def simulate_rate(rate: float, source: str = "Simulation"):
+    """Simulate a specific rate to trigger threshold alerts."""
+    logger.info(f"Simulating rate hit: {rate} from {source}")
+    await check_threshold_alerts([(source, rate)])
+    return {"status": "simulation triggered", "rate": rate, "source": source}
 
 @app.get("/debug/{file_type}")
 async def get_debug_file(file_type: str):
