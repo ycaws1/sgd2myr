@@ -196,7 +196,10 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     <section className="px-6 py-6 border-y border-white/5 bg-white/[0.02]">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Bell className="w-5 h-5 text-accent-primary" />
+          <Bell
+            className={`w-5 h-5 transition-all duration-300 ${isSubscribed && (thresholdEnabled || volatilityEnabled) ? 'text-accent-primary' : 'text-gray-500'}`}
+            fill={isSubscribed && (thresholdEnabled || volatilityEnabled) ? 'currentColor' : 'none'}
+          />
           <h2 className="font-semibold text-white">Smart Alerts</h2>
         </div>
         <button
