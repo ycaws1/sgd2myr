@@ -960,12 +960,37 @@ async def trigger_checks():
         logger.error(f"Manual trigger failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/debug/simulate-rate")
-async def simulate_rate(rate: float, source: str = "Simulation"):
+@app.api_route("/debug/simulate-rate", methods=["GET", "POST"])
+async def simulate_rate(rate: float, source: str = "Simulation", force: bool = False):
     """Simulate a specific rate to trigger threshold alerts."""
-    logger.info(f"Simulating rate hit: {rate} from {source}")
+    logger.info(f"Simulating rate hit: {rate} from {source} (force={force})")
+    
+    if force:
+        # Debug: Send notification to EVERYONE regardless of their threshold settings
+        async with db_pool.acquire() as conn:
+            subscriptions = await conn.fetch("SELECT endpoint, keys_json FROM subscriptions")
+            for sub in subscriptions:
+                try:
+                    subscription_info = {"endpoint": sub['endpoint'], "keys": json.loads(sub['keys_json'])}
+                    message = json.dumps({
+                        "title": "FORCE ALERT TEST",
+                        "body": f"Simulated rate {rate} triggered! ⚡️",
+                        "icon": "/icons/icon-192x192.png"
+                    })
+                    await send_push_notification(subscription_info, message)
+                except Exception as e:
+                    logger.error(f"Force notify failed for {sub['endpoint'][:20]}: {e}")
+        return {"status": "Force simulation sent to all", "subs_count": len(subscriptions)}
+
     await check_threshold_alerts([(source, rate)])
     return {"status": "simulation triggered", "rate": rate, "source": source}
+
+@app.api_route("/debug/simulate-volatility", methods=["GET", "POST"])
+async def simulate_volatility(source: str = "Simulation", change: float = 2.5):
+    """Simulate a volatility alert."""
+    logger.info(f"Simulating volatility: {change}% from {source}")
+    await send_volatility_notifications(source, change, 3.1000, 3.1000 * (1 + change/100))
+    return {"status": "volatility simulation triggered", "source": source, "change": change}
 
 @app.get("/debug/{file_type}")
 async def get_debug_file(file_type: str):
