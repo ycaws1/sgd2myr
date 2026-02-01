@@ -58,13 +58,13 @@ export function TrendChart({ onRefresh }: TrendChartProps) {
 
   useEffect(() => {
     if (sources.length > 0 && selectedSources.size === 0) {
-      // Exclude Google from default selection
-      const defaultSelected = sources.filter(s => s !== "Google");
-      if (defaultSelected.length > 0) {
-        setSelectedSources(new Set(defaultSelected));
-      } else {
-        setSelectedSources(new Set(sources));
-      }
+      // // Exclude Google from default selection
+      // const defaultSelected = sources.filter(s => s !== "Google");
+      // if (defaultSelected.length > 0) {
+      //   setSelectedSources(new Set(defaultSelected));
+      // } else {
+      setSelectedSources(new Set(sources));
+      // }
     }
   }, [sources, selectedSources.size]);
 

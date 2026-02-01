@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bell, BellOff, Activity, Send, CheckCircle2, AlertCircle } from "lucide-react";
+import { Bell, BellOff, Activity, Send, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 
 interface AlertControlsProps {
   currentRate: number | null;
@@ -154,6 +154,34 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
     }
   };
 
+  const resetSubscription = async () => {
+    if (!window.confirm("Refresh and reset your notification subscription?")) return;
+
+    setLoading(true);
+    try {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        const sub = await registration.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+        }
+      }
+
+      setThreshold("");
+      setThresholdEnabled(false);
+      setVolatilityEnabled(false);
+      setIsSubscribed(false);
+      localStorage.removeItem("alertSettings");
+
+      // Resubscribe immediately
+      await subscribeToPush();
+    } catch (e) {
+      console.error("Failed to reset subscription", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem("alertSettings", JSON.stringify({
       threshold, thresholdType, thresholdEnabled, volatilityEnabled,
@@ -166,9 +194,19 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
 
   return (
     <section className="px-6 py-6 border-y border-white/5 bg-white/[0.02]">
-      <div className="flex items-center gap-2 mb-6">
-        <Bell className="w-5 h-5 text-accent-primary" />
-        <h2 className="font-semibold text-white">Smart Alerts</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Bell className="w-5 h-5 text-accent-primary" />
+          <h2 className="font-semibold text-white">Smart Alerts</h2>
+        </div>
+        <button
+          onClick={resetSubscription}
+          disabled={loading}
+          className="p-1.5 rounded-lg bg-white/5 text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
+          title="Reset All Alerts"
+        >
+          <BellOff className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       <div className="space-y-4">

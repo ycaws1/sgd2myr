@@ -717,7 +717,7 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 1):
             if source:
                 result = await conn.fetch("""
                     SELECT date_trunc('minute', timestamp) - 
-    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 3) as rate
+    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 4) as rate
                     FROM rates
                     WHERE timestamp > $1 AND source_name = $2
                     ORDER BY timestamp ASC
@@ -725,7 +725,7 @@ async def get_rate_trends(source: Optional[str] = None, days: int = 1):
             else:
                 result = await conn.fetch("""
                     SELECT date_trunc('minute', timestamp) - 
-    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 3) as rate
+    (EXTRACT(minute FROM timestamp)::int % 5 || ' minutes')::interval  as timestamp, source_name, ROUND(rate::numeric, 4) as rate
                     FROM rates
                     WHERE timestamp > $1
                     ORDER BY timestamp ASC
