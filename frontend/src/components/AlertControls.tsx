@@ -42,25 +42,16 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
   useEffect(() => {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       navigator.serviceWorker.register('/sw.js').then(registration => {
-        registration.pushManager.getSubscription().then(async (sub) => {
-          if (sub) {
-            setIsSubscribed(true);
-            try {
-              const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/status?endpoint=${encodeURIComponent(sub.endpoint)}`);
-              if (res.ok) {
-                const data = await res.json();
-                setThresholdEnabled(data.threshold_enabled);
-                setVolatilityEnabled(data.volatility_alert);
-                if (data.threshold) {
-                  setThreshold(data.threshold.toString());
-                  setThresholdType(data.threshold_type);
-                }
-              }
-            } catch (e) {
-              console.error("Failed to sync alert status");
-            }
-          }
-        });
+        const checkSub = () => {
+          registration.pushManager.getSubscription().then(sub => {
+            setIsSubscribed(!!sub);
+          });
+        };
+
+        checkSub();
+        // Check again when window gets focus (user might have enabled in settings)
+        window.addEventListener('focus', checkSub);
+        return () => window.removeEventListener('focus', checkSub);
       });
     }
   }, []);
@@ -163,6 +154,12 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
         const registration = await navigator.serviceWorker.ready;
         const sub = await registration.pushManager.getSubscription();
         if (sub) {
+          // Tell backend to remove it
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/alerts/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint })
+          });
           await sub.unsubscribe();
         }
       }
@@ -197,8 +194,11 @@ export function AlertControls({ currentRate }: AlertControlsProps) {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Bell
-            className={`w-5 h-5 transition-all duration-300 ${isSubscribed && (thresholdEnabled || volatilityEnabled) ? 'text-accent-primary' : 'text-gray-500'}`}
-            fill={isSubscribed && (thresholdEnabled || volatilityEnabled) ? 'currentColor' : 'none'}
+            className={`w-5 h-5 transition-all duration-300 ${(thresholdEnabled || volatilityEnabled)
+                ? (isSubscribed ? 'text-accent-primary animate-pulse-subtle' : 'text-accent-primary opacity-50')
+                : 'text-gray-500'
+              }`}
+            fill={(thresholdEnabled || volatilityEnabled) && isSubscribed ? 'currentColor' : 'none'}
           />
           <h2 className="font-semibold text-white">Smart Alerts</h2>
         </div>

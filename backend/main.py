@@ -875,6 +875,22 @@ async def clear_all_subscriptions():
         logger.error(f"Failed to clear subscriptions: {e}")
         raise HTTPException(status_code=500, detail="Failed to clear subscriptions")
 
+@app.post("/alerts/unsubscribe")
+async def unsubscribe_alerts(request: dict):
+    """Remove a specific subscription."""
+    endpoint = request.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Endpoint required")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM subscriptions WHERE endpoint = $1", endpoint)
+        logger.info(f"Unsubscribed: {endpoint[:20]}...")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to unsubscribe: {e}")
+        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
+
 @app.post("/alerts/test")
 async def send_test_alert(request: PushTestRequest):
     """Send a test push notification."""
